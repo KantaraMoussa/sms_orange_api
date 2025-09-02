@@ -1,0 +1,5 @@
+{
+    "require": {
+        "mediumart/orange-sms": "^2.0"
+    }
+}
