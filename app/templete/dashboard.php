@@ -42,7 +42,9 @@
                       <div class="form-text">Numéro ou expéditeur validé chez Orange</div>
                     </div>
                     <div class="form-group mb-3">
-                      <textarea class="form-control border-0 bg-transparent" name="message" id="message" rows="4" placeholder="Tapez votre message...">📢 ALERT UGLCS-SCOLARITE</textarea>
+                      <textarea class="form-control border-0 bg-transparent" name="message" id="message" rows="4" placeholder="Tapez votre message..."> 📢 ALERT UGLCS-SCOLARITE
+                         La Scolarité de l’UGLC-SC vous informe que la biométrie commence le 19/11/2025 et prend fin le 27/11/2025. si vous n’êtes pas inscrit, vous ne pouvez pas être biométrisé et vous perdrez votre statut d’étudiant !!! Merci
+                      </textarea>
                       <div class="form-text">Votre Message ici</div>
                     </div>
                     <div class="d-grid mt-4">

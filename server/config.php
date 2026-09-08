@@ -160,10 +160,10 @@ function detailCampagne($campagneId)
 function getMessageSenderMarksheet()
 {
     $sql = "SELECT 
-    messages.destinataire,messages.matricule,
+    messages.destinataire,messages.matricule,niveaux,
     STRING_AGG(messages.contenu || ' = ' || messages.notes || '', ' | ') AS messages
     FROM messages 
-    GROUP BY messages.destinataire, messages.matricule
+    GROUP BY messages.destinataire, messages.matricule, messages.niveaux
     ORDER BY messages.destinataire desc;";
     $stmt = PDO()->prepare($sql);
     $stmt->execute();
@@ -180,7 +180,7 @@ function getSingleStudentSendMarksheet($matricule){
     ORDER BY messages.destinataire desc";
     $stmt = PDO()->prepare($sql);
     $stmt->execute([":matricule" => $matricule]);
-    return $stmt->fetch(PDO::FETCH_ASSOC);
+    return $stmt->fetch(PDO::FETCH_ASSOC); 
 }
 
 

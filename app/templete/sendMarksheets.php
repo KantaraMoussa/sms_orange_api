@@ -17,6 +17,7 @@
                                 <th>Matricule</th>
                                 <th>Contact</th>
                                 <th>Notes</th>
+                                 <th>Niveaux</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
@@ -26,6 +27,7 @@
                                     <td> <?php echo ($marksheet['matricule']) ?></td>
                                     <td><?php echo ($marksheet['destinataire']) ?></td>
                                     <td><?php echo ($marksheet['messages']) ?></td>
+                                    <td><?php echo ($marksheet['niveaux']) ?></td>
                                     <td><a href="?page=notes&sender=<?= $marksheet['matricule'] ?>" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#senderMarksheetModal<?= $marksheet['matricule'] ?>"> <i class="fa fa-envelope-square" aria-hidden="true"></i></a></td>
                                     <div class="modal fade" id="senderMarksheetModal<?= $marksheet['matricule'] ?>" tabindex="-1" aria-labelledby="senderMarksheetModalLabel<?= $marksheet['matricule'] ?>" aria-hidden="true">
                                         <div class="modal-dialog modal-md">
@@ -38,6 +40,12 @@
 
                                                     <!-- Formulaire d’import CSV -->
                                                     <form action="../server/app.php" method="POST" enctype="multipart/form-data">
+                                                        <div class="mb-3">
+                                                            <label for="number" class="form-label">Niveaux</label>
+                                                     
+                                                                <input value="<?= $marksheet['niveaux'] ?>" name="number" type="tel" class="form-control" required> 
+                                                     
+                                                        </div>
                                                         <div class="mb-3">
                                                             <label for="number" class="form-label">Numéro de Téléphone</label>
                                                      

@@ -52,8 +52,9 @@ if (isset($_POST['import_csv']) && isset($_FILES['csvFile'])) {
                     $name = trim($data[0]);
                     $phone = trim($data[1]);
                     $email = trim($data[2]);
+                    $phone = '+224' . $phone;
                     // ajouter dans un tableaux
-                    if ($name != "" && $phone != "" && preg_match("/^\+?[0-9]{8,15}$/", $phone)) {
+                    if ($name != "" && $phone != "") {
                         $contact['nom'] = $name;
                         $contact['telephone'] = $phone;
                         $contact['email'] = $email;
@@ -112,7 +113,7 @@ if (isset($_POST['import_csv']) && isset($_FILES['csvFile'])) {
 if (isset($_POST['add_contact'])) {
     $group_id = $_POST['group_id'];
     $name = trim($_POST['contact_name']);
-    $phone = trim($_POST['contact_phone']);
+    $phone = trim('+224' . $_POST['contact_phone']);
     $email = trim($_POST['contact_email']);
 
     if (!empty($group_id)) {
@@ -156,11 +157,13 @@ if (isset($_POST['single-sender'])) {
     $numero = trim($_POST['number']);
     $message = trim($_POST['message']);
     if ($numero != "" && $message != "") {
+
         if (preg_match($pattern, $numero)) {
             $response = $sms->message($message)
                 ->from('+224620000000') // Numéro expéditeur
                 ->to($numero)
                 ->send();
+
             $_SESSION['class'] = "alert alert-success";
             $_SESSION['message'] = "✅ Message envoyé au {$numero} avec succéess .";
             header("Location: " . $_SERVER['HTTP_REFERER']);
@@ -170,6 +173,7 @@ if (isset($_POST['single-sender'])) {
             $_SESSION['message'] = "❌ Le numéro {$numero} est invalide  .";
             header("Location: " . $_SERVER['HTTP_REFERER']);
         }
+
     } else {
         $_SESSION['class'] = "alert alert-danger";
         $_SESSION['message'] = "Veuillez entrer le numéro de téléphone et le message .";
@@ -177,6 +181,28 @@ if (isset($_POST['single-sender'])) {
         exit;
     }
 }
+/*
+if (isset($_POST['single-sender'])) {
+
+    $message = " 📢 ALERT UGLCS-SCOLARITE : La biométrie démarre le 19/11/2025 et se termine le 27/11/2025.
+        Seuls les étudiants de L1 sont concernés.
+        Sans biométrie, vous perdrez votre statut d’étudiant.";
+            // Tableau des numéros
+            $numbers = [];
+            // Boucle d’envoi
+            foreach ($numbers as $numero) {
+                try {
+                    $sms->message($message)
+                        ->from('+224620000000') // Numéro expéditeur
+                        ->to($numero)
+                        ->send();
+
+                    echo "✅ SMS envoyé à : $numero\n";
+                } catch (Exception $e) {
+                    echo "❌ Erreur avec $numero : " . $e->getMessage() . "\n";
+                }
+            }
+}*/
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_campagne'])) {
     $nom         = trim($_POST['campagne_name']);
@@ -224,29 +250,30 @@ if (isset($_POST['importMessage_csv']) && isset($_FILES['csvFile']) && isset($_P
         while (($data = fgetcsv($handle, 1000, ",")) !== false) {
             $row++;
             if ($row == 1) continue; // Ignorer la première ligne (entêtes CSV)
-            $destinataire = trim($data[0]);
+            $destinataire = trim('+224' . $data[0]);
             $contenu = trim($data[1]);
             $matricule = trim($data[2]);
             $notes = trim($data[3]);
-            if (!empty($destinataire) && !empty($contenu) ) {
+            $level = trim($data[4]);
+            if (!empty($destinataire) && !empty($contenu)) {
 
-               /* $contact['destinataire'] = '+224'.$destinataire;
+                /* $contact['destinataire'] = '+224'.$destinataire;
                 $contact['contenu'] = $contenu;
                 $contact['campagne_id'] = $campagneId;
                  $contact['matricule'] = $matricule;
                 $contact['notes'] = $notes;
                 array_push($ret, $contact);*/
-                 $sql = "INSERT INTO messages (destinataire, contenu, date_envoi, statut, campagne_id,matricule,notes) 
-                        VALUES (:destinataire, :contenu, NOW(), 'en_attente', :campagne_id, :matricule, :notes)";
-            $stmt = PDO()->prepare($sql);
-            $stmt->execute([
-                ':destinataire' =>   $destinataire,
-                ':contenu' =>   $contenu,
-                ':campagne_id' => $campagneId,
-                ':matricule' =>  $matricule,
-                ':notes' =>  $notes,
-            ]);
-
+                $sql = "INSERT INTO messages (destinataire, contenu, date_envoi, statut, campagne_id,matricule,notes,niveaux) 
+                        VALUES (:destinataire, :contenu, NOW(), 'en_attente', :campagne_id, :matricule, :notes, :niveaux)";
+                $stmt = PDO()->prepare($sql);
+                $stmt->execute([
+                    ':destinataire' =>   $destinataire,
+                    ':contenu' =>   $contenu,
+                    ':campagne_id' => $campagneId,
+                    ':matricule' =>  $matricule,
+                    ':notes' =>  $notes,
+                    ':niveaux' =>  $level,
+                ]);
             } else {
                 continue;
                 $_SESSION['class'] = "alert alert-danger";
@@ -255,7 +282,7 @@ if (isset($_POST['importMessage_csv']) && isset($_FILES['csvFile']) && isset($_P
                 exit();
             }
         }
-      /* foreach ($ret as $data) {
+        /* foreach ($ret as $data) {
             $sql = "INSERT INTO messages (destinataire, contenu, date_envoi, statut, campagne_id,matricule,notes) 
                         VALUES (:destinataire, :contenu, NOW(), 'en_attente', :campagne_id, :matricule, :notes)";
             $stmt = PDO()->prepare($sql);
