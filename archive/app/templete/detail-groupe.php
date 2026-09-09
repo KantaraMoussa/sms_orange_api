@@ -66,6 +66,7 @@
 
                 <!-- Formulaire d’import CSV -->
                 <form action="../server/app.php" method="POST" enctype="multipart/form-data">
+                    <?= csrf_field() ?>
                     <div class="mb-3">
                         <label for="group_id" class="form-label">Nom du Groupe</label>
                         <select name="group_id" id="group_id" class="form-control" required="required">
@@ -94,6 +95,7 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="post" action="../server/app.php">
+                <?= csrf_field() ?>
                 <div class="modal-header">
                     <h5 class="modal-title" id="addContactModalLabel<?= $group['id'] ?>">Ajouter un contact au groupe | <span class="text-primary"><?= htmlspecialchars($group['libelle']) ?></span> </h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>

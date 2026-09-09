@@ -38,31 +38,6 @@
              </div>
          </div>
      </div>
-     <div class="col-sm-4">
-         <div class="card card-default">
-             <div class="card-header">
-                 <h3 class="card-title">Créer une Campagne</h3>
-             </div>
-             <div class="card-body">
-                 <form action="../server/send_sms.php" method="post" enctype="multipart/form-data">
-                     <div class="form-group mb-3">
-                         <input type="text" class="form-control" placeholder="Nom de la campagne" required />
-                     </div>
-                     <div class="form-group mb-3">
-                         <input type="text" class="form-control" name="from_number" id="from_number" required value="+224600000000" placeholder="+224600000000" required>
-                         <div class="form-text">Numéro ou expéditeur validé chez Orange</div>
-                     </div>
-                     <div class="form-group mb-3">
-                         <input type="file" class="form-control" name="csv_file" id="csv_file" accept=".csv" required />
-                         <div class="form-text">Format CSV : numéro,message (pas d’en-tête)</div>
-                     </div>
-                     <div class="d-grid mt-4">
-                         <button type="submit" class="btn btn-primary">Envoyer maintenant</button>
-                     </div>
-                 </form>
-             </div>
-         </div>
-     </div>
      <!-- Recent Orders end -->
 
  </div>
@@ -79,6 +54,7 @@
 
                  <!-- Formulaire d’import CSV -->
                  <form action="../server/app.php" method="post">
+                     <?= csrf_field() ?>
                      <div class="row">
                          <div class="form-group mb-3" class="col-md-12">
                              <label for="campagne_name"> Libelle du Campagne * </label>

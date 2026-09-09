@@ -1,5 +1,90 @@
-<?php ?>
+<?php
+$marksheets = getMessageSenderMarksheet();
+$niveaux = array_values(array_unique(array_filter(array_column($marksheets, 'niveaux'))));
+$selectedNiveau = $_GET['niveau'] ?? 'all';
+$filtered = ($selectedNiveau !== 'all')
+    ? array_filter($marksheets, fn($m) => $m['niveaux'] === $selectedNiveau)
+    : $marksheets;
+
+$totalEtudiants = count($filtered);
+$numerosValides = 0;
+$smsEstimes = 0;
+foreach ($filtered as $m) {
+    if (\App\Services\PhoneNumberService::isValid($m['destinataire'])) {
+        $numerosValides++;
+    }
+    $smsEstimes += (int) ceil(strlen($m['messages']) / 153);
+}
+?>
 <hr>
+
+<!-- Aperçu et lancement d'une campagne de résultats académiques (§3-§4) -->
+<div class="row mb-3">
+    <div class="col-sm-12">
+        <div class="card">
+            <div class="card-header">
+                <h4>📤 Envoyer les résultats par SMS</h4>
+            </div>
+            <div class="card-body">
+                <form method="get" class="row g-2 mb-3">
+                    <input type="hidden" name="page" value="notes">
+                    <div class="col-md-4">
+                        <label class="form-label">Niveau</label>
+                        <select name="niveau" class="form-control" onchange="this.form.submit()">
+                            <option value="all" <?= $selectedNiveau === 'all' ? 'selected' : '' ?>>Tous les niveaux</option>
+                            <?php foreach ($niveaux as $n): ?>
+                                <option value="<?= htmlspecialchars($n) ?>" <?= $selectedNiveau === $n ? 'selected' : '' ?>><?= htmlspecialchars($n) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </form>
+
+                <div class="row text-center mb-3">
+                    <div class="col-md-3 col-sm-6">
+                        <h3><?= $totalEtudiants ?></h3>
+                        <small class="text-muted">Étudiants concernés</small>
+                    </div>
+                    <div class="col-md-3 col-sm-6">
+                        <h3 class="<?= $numerosValides < $totalEtudiants ? 'text-warning' : 'text-success' ?>"><?= $numerosValides ?></h3>
+                        <small class="text-muted">Numéros valides</small>
+                    </div>
+                    <div class="col-md-3 col-sm-6">
+                        <h3 class="<?= ($totalEtudiants - $numerosValides) > 0 ? 'text-danger' : '' ?>"><?= $totalEtudiants - $numerosValides ?></h3>
+                        <small class="text-muted">Numéros invalides</small>
+                    </div>
+                    <div class="col-md-3 col-sm-6">
+                        <h3><?= $smsEstimes ?></h3>
+                        <small class="text-muted">SMS estimés</small>
+                    </div>
+                </div>
+
+                <?php if ($totalEtudiants > 0): ?>
+                <form method="post" action="../server/app.php" onsubmit="return confirm('Vous êtes sur le point de préparer une campagne pour <?= $totalEtudiants ?> étudiant(s) (<?= $numerosValides ?> numéro(s) valide(s), coût estimé : <?= $smsEstimes ?> SMS). Continuer ?');">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="niveau" value="<?= htmlspecialchars($selectedNiveau) ?>">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label">Session académique</label>
+                            <input type="text" name="session" class="form-control" placeholder="2025-2026">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Semestre</label>
+                            <input type="text" name="semestre" class="form-control" placeholder="Semestre 1">
+                        </div>
+                        <div class="col-md-3">
+                            <button type="submit" name="prepare_resultats_campagne" class="btn btn-primary">
+                                📨 Préparer la campagne (<?= $totalEtudiants ?> étudiants)
+                            </button>
+                        </div>
+                    </div>
+                </form>
+                <?php else: ?>
+                    <div class="alert alert-info mb-0">Aucun résultat disponible pour ce niveau. Importez des résultats via "Créer une campagne" → "Importer les Messages".</div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Recent Orders start -->
 <div class="row">
@@ -7,7 +92,7 @@
     <div class="col-sm-12">
         <div class="card table-card">
             <div class="card-header">
-                <h4>Listes des notes </h4>
+                <h4>Listes des notes <?= $selectedNiveau !== 'all' ? '— ' . htmlspecialchars($selectedNiveau) : '' ?></h4>
             </div>
             <div class="card-body p-2">
                 <div class="table-responsive">
@@ -22,7 +107,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach (getMessageSenderMarksheet() as $marksheet) { ?>
+                            <?php foreach ($filtered as $marksheet) { ?>
                                 <tr>
                                     <td> <?php echo ($marksheet['matricule']) ?></td>
                                     <td><?php echo ($marksheet['destinataire']) ?></td>
@@ -40,6 +125,7 @@
 
                                                     <!-- Formulaire d’import CSV -->
                                                     <form action="../server/app.php" method="POST" enctype="multipart/form-data">
+                                                        <?= csrf_field() ?>
                                                         <div class="mb-3">
                                                             <label for="number" class="form-label">Niveaux</label>
                                                      

@@ -37,6 +37,7 @@
 
          <!-- Formulaire d’import CSV -->
          <form action="../server/app.php" method="post">
+           <?= csrf_field() ?>
            <div class="row">
              <div class="form-group mb-3" class="col-md-12">
                <label for="group_name"> Libelle du Groupe * </label>

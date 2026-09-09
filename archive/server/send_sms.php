@@ -1,13 +1,7 @@
 <?php
-require '../vendor/autoload.php';
-$logFile = "sms_log.txt";
-
-use Mediumart\Orange\SMS\SMS;
-use Mediumart\Orange\SMS\Http\SMSClient;
-
-// ⚡ Configuration Orange
-$client_id = "VDnMeAPmoenbvOD2BTtWDTe0ILdQ4SLC";
-$client_secret = "HQckwZtQNOGFXKb2tdUjG0ZZQSO4UFPpFueKU2l8GyFk";
+require_once __DIR__ . '/../config/bootstrap.php';
+require_once __DIR__ . '/../config/orange.php';
+$logFile = __DIR__ . '/sms_log.txt';
 
 if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
     die('<div class="alert alert-danger">Erreur lors du téléchargement du fichier CSV !</div>');
@@ -15,10 +9,6 @@ if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_O
 
 $from = $_POST['from_number'] ?? '';
 if (empty($from)) die('<div class="alert alert-danger">Numéro expéditeur requis !</div>');
-
-// Initialiser le client Orange
-$client = SMSClient::getInstance($client_id, $client_secret);
-$sms = new SMS($client);
 
 // Lire le fichier CSV uploadé
 $csvFile = $_FILES['csv_file']['tmp_name'];
@@ -33,11 +23,7 @@ while (($data = fgetcsv($handle, 1000, ',')) !== false) {
 
     if (empty($to) || empty($message)) continue;
     try {
-        $response = $sms->message($message)
-            ->from($from)
-            ->to($to)
-            ->send();
-        // Vérifier le statut
+        $response = orangeSms()->sendSms($to, $message, $from);
         $status = $response['outboundSMSMessageRequest']['deliveryInfoList']['deliveryInfo'][0]['deliveryStatus'] ?? 'UNKNOWN';
         $log = date("Y-m-d H:i:s") . " | $to | $status | SUCCESS\n";
         file_put_contents($logFile, $log, FILE_APPEND);
@@ -46,28 +32,7 @@ while (($data = fgetcsv($handle, 1000, ',')) !== false) {
         file_put_contents($logFile, $log, FILE_APPEND);
     }
 
-    /* try {
-        $response = $sms->message($message)
-            ->from($from)
-            ->to($to)
-            ->send();
-        if (isset($response['outboundSMSMessageRequest']['deliveryInfoList']['deliveryInfo'][0]['deliveryStatus'])) {
-            $status = $response['outboundSMSMessageRequest']['deliveryInfoList']['deliveryInfo'][0]['deliveryStatus'];
-
-            if ($status === "DeliveredToTerminal") {
-                echo "<div style='color:green'><b>✅ SMS livré avec succès !</b></div>";
-            } else {
-                echo "<div style='color:orange'><b>⚠️ SMS envoyé mais statut : $status</b></div>";
-            }
-        } else {
-            echo "<div style='color:red'><b>❌ Réponse inattendue de l'API Orange</b></div>";
-            echo "<pre>" . htmlspecialchars(print_r($response, true)) . "</pre>";
-        }
-        echo "<div class='alert alert-success'>✅ SMS envoyé à $to</div>";
-    } catch (\Exception $e) {
-        echo "<div class='alert alert-danger'>❌ Erreur pour $to : " . $e->getMessage() . "</div>";
-    }*/
-     usleep(200000);
+    usleep(200000);
 }
 
 fclose($handle);

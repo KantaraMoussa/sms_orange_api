@@ -14,95 +14,15 @@ if (!checkInternet()) {
                 </div>');
     exit();
 }
-require_once '../vendor/autoload.php';
+require_once __DIR__ . '/../config/bootstrap.php';
+require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/orange.php';
+require_once __DIR__ . '/../config/services.php';
 
-use Mediumart\Orange\SMS\SMS;
-use Mediumart\Orange\SMS\Http\SMSClient;
-$clientId = "VDnMeAPmoenbvOD2BTtWDTe0ILdQ4SLC";
-$clientSecret = "HQckwZtQNOGFXKb2tdUjG0ZZQSO4UFPpFueKU2l8GyFk";
-$client = SMSClient::getInstance($clientId, $clientSecret);
-$sms = new SMS($client);
-
+// Kept for backward compatibility with code that still calls PDO() directly.
 function PDO()
 {
-    $host = "localhost";     // ou l'adresse IP du serveur
-    $port = "5432";          // port par défaut PostgreSQL
-    $dbname = "apiSms";   // nom de ta base
-    $user = "postgres";      // ton utilisateur
-    $password = "stratus05@1993"; // ton mot de passe
-    try {
-        // Connexion avec PDO
-        $dsn = "pgsql:host=$host;port=$port;dbname=$dbname;";
-        $pdo = new PDO($dsn, $user, $password, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, // Active les erreurs
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC // Récupère les données en tableau associatif
-        ]);
-        return $pdo;
-    } catch (PDOException $e) {
-        echo "❌ Erreur de connexion : " . $e->getMessage();
-    }
-}
-function getGroupes()
-{
-    $sql = "SELECT id, libelle, description, date_creation FROM groupes ORDER BY date_creation DESC";
-    $stmt = PDO()->query($sql);
-    return  $stmt->fetchAll(PDO::FETCH_ASSOC);
-}
-function getGroupe($idGroupe)
-{
-    $sql = "SELECT * FROM groupes WHERE id = :id";
-    $stmt = PDO()->prepare($sql);
-    $stmt->execute([":id" => $idGroupe]);
-    return $stmt->fetch(PDO::FETCH_ASSOC);
-}
-function getContactByGroupe($idGroupe)
-{
-    $sql = "SELECT *
-                FROM contacts 
-                INNER JOIN groupe_contacts  ON contacts.contact_id = groupe_contacts.contact_id
-                WHERE groupe_contacts.groupe_id = :id";
-
-    $stmt = PDO()->prepare($sql);
-    $stmt->execute([":id" => $idGroupe]);
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
-}
-
-function detailGroupe($idGroupe)
-{
-    $data = [];
-    $ret = [];
-    $ret_ = [];
-    $groupe = getGroupe($idGroupe);
-    $data['id'] = $groupe['id'];
-    $data['libelle'] = $groupe['libelle'];
-    $data['description'] = $groupe['description'];
-    $contactgroupes = getContactByGroupe($idGroupe);
-    if (count($contactgroupes) != 0) {
-        foreach ($contactgroupes as $contact) {
-            $ret['nom'] = $contact['nom'];
-            $ret['email'] = $contact['email'];
-            $ret['telephone'] = $contact['telephone'];
-            array_push($ret_, $ret);
-        }
-    }
-    $data['contacts'] = $ret_;
-
-    return $data;
-}
-function getPhoneContact($telephone)
-{
-    $stmt = PDO()->prepare("SELECT * FROM contacts WHERE telephone = :telephone");
-    $stmt->bindParam(':telephone', $telephone, PDO::PARAM_INT);
-    $stmt->execute();
-    return $stmt->fetch(PDO::FETCH_ASSOC);
-}
-function phoneExiste($telephone)
-{
-    if (!empty(getPhoneContact($telephone))) {
-        return true;
-    } else {
-        return false;
-    }
+    return db();
 }
 function getCampagne()
 {
@@ -114,9 +34,7 @@ function getCampagne()
 }
 function getSingleCampagne($campagneId)
 {
-    $sql = "SELECT id, nom, description, date_creation, date_debut, date_fin, statut 
-            FROM campagne 
-            WHERE id = :id";
+    $sql = "SELECT * FROM campagne WHERE id = :id";
     $stmt = PDO()->prepare($sql);
     $stmt->bindParam(':id', $campagneId, PDO::PARAM_INT);
     $stmt->execute();
@@ -124,9 +42,9 @@ function getSingleCampagne($campagneId)
 }
 function getMessageCampagne($campagneId)
 {
-    $sql = "SELECT id, contenu, destinataire, date_envoi, statut 
-                FROM messages 
-                WHERE campagne_id = :campagne_id 
+    $sql = "SELECT id, contenu, destinataire, date_envoi, statut, matricule, nom, prenom, error_code, error_message, tentative_count, date_traitement
+                FROM messages
+                WHERE campagne_id = :campagne_id
                 ORDER BY date_envoi DESC";
     $stmt = PDO()->prepare($sql);
     $stmt->bindParam(':campagne_id', $campagneId, PDO::PARAM_INT);
@@ -157,37 +75,101 @@ function detailCampagne($campagneId)
     return $data;
 }
 
-function getMessageSenderMarksheet()
+/**
+ * Remplace `header("Location: " . $_SERVER['HTTP_REFERER'])` utilisé partout
+ * dans app.php : évite le warning PHP quand HTTP_REFERER est absent (courant
+ * avec certains navigateurs/proxys) et l'open-redirect si un Referer forgé
+ * pointait vers un domaine externe (audit §5.6).
+ */
+function redirectBack(string $fallback = '../app/index.php'): void
 {
-    $sql = "SELECT 
-    messages.destinataire,messages.matricule,niveaux,
-    STRING_AGG(messages.contenu || ' = ' || messages.notes || '', ' | ') AS messages
-    FROM messages 
-    GROUP BY messages.destinataire, messages.matricule, messages.niveaux
-    ORDER BY messages.destinataire desc;";
+    $referer = $_SERVER['HTTP_REFERER'] ?? '';
+    $host = $_SERVER['HTTP_HOST'] ?? '';
+
+    if ($referer !== '' && $host !== '' && parse_url($referer, PHP_URL_HOST) === $host) {
+        header("Location: $referer");
+    } else {
+        header("Location: $fallback");
+    }
+}
+
+// -- Statistiques réelles pour le tableau de bord (remplacent les KPI/graphiques
+// factices de la Phase 1, cf. audit §8) --
+
+function getGlobalSmsStats()
+{
+    $sql = "SELECT
+                COUNT(*) FILTER (WHERE statut = 'envoye') AS envoyes,
+                COUNT(*) FILTER (WHERE statut = 'echec') AS echecs,
+                COUNT(*) FILTER (WHERE statut IN ('en_attente','en_cours')) AS en_attente
+            FROM messages";
+    $row = PDO()->query($sql)->fetch(PDO::FETCH_ASSOC);
+    $envoyes = (int) ($row['envoyes'] ?? 0);
+    $echecs = (int) ($row['echecs'] ?? 0);
+    $traites = $envoyes + $echecs;
+
+    return [
+        'envoyes' => $envoyes,
+        'echecs' => $echecs,
+        'en_attente' => (int) ($row['en_attente'] ?? 0),
+        'taux_reussite' => $traites > 0 ? round(($envoyes / $traites) * 100, 1) : 0,
+    ];
+}
+
+function getSmsEvolution(int $days = 14)
+{
+    $sql = "SELECT DATE(date_traitement) AS jour, COUNT(*) AS total
+            FROM messages
+            WHERE statut = 'envoye' AND date_traitement >= NOW() - (:days || ' days')::interval
+            GROUP BY DATE(date_traitement)
+            ORDER BY jour";
     $stmt = PDO()->prepare($sql);
+    $stmt->execute([':days' => $days]);
+    $rows = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+
+    $series = [];
+    for ($i = $days - 1; $i >= 0; $i--) {
+        $day = date('Y-m-d', strtotime("-$i days"));
+        $series[$day] = (int) ($rows[$day] ?? 0);
+    }
+
+    return $series;
+}
+
+function getCampaignPerformance(int $limit = 6)
+{
+    $sql = "SELECT nom, nombre_envoyes, nombre_echecs
+            FROM campagne
+            WHERE total_destinataires > 0
+            ORDER BY date_creation DESC
+            LIMIT :limit";
+    $stmt = PDO()->prepare($sql);
+    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    $stmt->execute();
+    return array_reverse($stmt->fetchAll(PDO::FETCH_ASSOC));
+}
+
+function getCampaignsReport()
+{
+    $sql = "SELECT id, nom, type, statut, total_destinataires, nombre_envoyes, nombre_echecs, date_creation, date_completion
+            FROM campagne
+            ORDER BY date_creation DESC";
+    return PDO()->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function getTopErrors(int $limit = 10)
+{
+    $sql = "SELECT error_code, COUNT(*) AS total
+            FROM messages
+            WHERE statut = 'echec' AND error_code IS NOT NULL
+            GROUP BY error_code
+            ORDER BY total DESC
+            LIMIT :limit";
+    $stmt = PDO()->prepare($sql);
+    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
     $stmt->execute();
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
-function getSingleStudentSendMarksheet($matricule){
-    $sql = "
-    SELECT 
-    messages.destinataire,messages.matricule,
-    STRING_AGG(messages.contenu || ' = ' || messages.notes || '', ' | ') AS messages
-    FROM messages 
-    where matricule=:matricule
-    GROUP BY messages.destinataire, messages.matricule
-    ORDER BY messages.destinataire desc";
-    $stmt = PDO()->prepare($sql);
-    $stmt->execute([":matricule" => $matricule]);
-    return $stmt->fetch(PDO::FETCH_ASSOC); 
-}
-
-
-//-- var_dump(detailGroupe($_GET['details']));exit();
-
-
-
 
 
 // function sms infos

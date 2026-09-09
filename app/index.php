@@ -1,25 +1,24 @@
-<?php require_once('../server/infosAPI.php'); ?>
+<?php
+require_once __DIR__ . '/../config/services.php';
+auth()->requireLogin('login.php');
+require_once('../server/infosAPI.php');
+?>
 <!doctype html>
 <html lang="en">
 <!-- [Head] start -->
 
 <head>
-    <title>Home | Gradient Able Dashboard Template</title>
+    <title>SMS_ORANGE — Tableau de bord</title>
     <!-- [Meta] -->
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0, minimal-ui" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <meta name="description"
-        content="Gradient Able is trending dashboard template made using Bootstrap 5 design framework. Gradient Able is available in Bootstrap, React, CodeIgniter, Angular,  and .net Technologies." />
-    <meta name="keywords"
-        content="Bootstrap admin template, Dashboard UI Kit, Dashboard Template, Backend Panel, react dashboard, angular dashboard" />
-    <meta name="author" content="codedthemes" />
+    <meta name="description" content="SMS_ORANGE — plateforme d'envoi de campagnes SMS et messages administratifs." />
+    <meta name="author" content="UGLC-SC" />
 
     <!-- [Favicon] icon -->
     <link rel="icon" href="../assets/images/favicon.svg" type="image/x-icon" />
 
-    <!-- map-vector css -->
-    <link rel="stylesheet" href="../assets/css/plugins/jsvectormap.min.css" />
     <!-- [Google Font : Poppins] icon -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet" />
 
@@ -34,6 +33,7 @@
     <!-- [Template CSS Files] -->
     <link rel="stylesheet" href="../assets/css/style.css" id="main-style-link" />
     <link rel="stylesheet" href="../assets/css/style-preset.css" />
+    <link rel="stylesheet" href="../assets/css/sms-orange-overrides.css" />
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.5/css/dataTables.bootstrap5.min.css">
 <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css">
 <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/alertifyjs@1.13.1/build/css/alertify.min.css"/>
@@ -43,7 +43,7 @@
 <!-- [Head] end -->
 <!-- [Body] Start -->
 
-<body data-pc-header="header-1" data-pc-preset="preset-1" data-pc-sidebar-theme="light" data-pc-sidebar-caption="true"
+<body data-pc-header="header-1" data-pc-preset="preset-6" data-pc-sidebar-theme="light" data-pc-sidebar-caption="true"
     data-pc-direction="ltr" data-pc-theme="light">
     <!-- [ Pre-loader ] start -->
     <div class="loader-bg">
@@ -56,9 +56,8 @@
     <nav class="pc-sidebar">
         <div class="navbar-wrapper">
             <div class="m-header">
-                <a href="../dashboard/index.html" class="b-brand text-primary">
-                    <!-- ========   Change your logo from here   ============ -->
-                    <img src="../assets/images/logo-white.svg" alt="logo image" class="logo-lg" />
+                <a href="index.php?page=dashdoards" class="b-brand text-primary">
+                    <span class="fw-bold fs-4">SMS<span class="text-dark text-opacity-75">_ORANGE</span></span>
                 </a>
             </div>
             <div class="navbar-content">
@@ -71,22 +70,6 @@
                                     class="ph ph-gauge"></i></span><span class="pc-mtext">Accueil</span></a>
                     </li>
 
-                    <li class="pc-item pc-caption">
-                        <label>Gestion des contacts</label>
-                        <i class="ph ph-compass-tool"></i>
-                    </li>
-                    <li class="pc-item">
-                        <a href="?page=Groupes" class="pc-link">
-                            <span class="pc-micon"><i class="ph ph-text-aa"></i></span>
-                            <span class="pc-mtext">Gestion des Groupes</span>
-                        </a>
-                    </li>
-                    <li class="pc-item">
-                        <a href="?page=Contacts" class="pc-link">
-                            <span class="pc-micon"><i class="ph ph-palette"></i></span>
-                            <span class="pc-mtext">Liste des Contacts</span>
-                        </a>
-                    </li>
                     <li class="pc-item pc-caption">
                         <label>Gestion des Messages</label>
                         <i class="ph ph-suitcase"></i>
@@ -108,20 +91,15 @@
                         <a href="?page=rapports" class="pc-link"><span class="pc-micon"> <i class="ph ph-gauge"></i></span><span
                                 class="pc-mtext">Rapport / Statistique</span></a>
                     </li>
-                     <li class="pc-item pc-hasmenu">
-                        <a href="?page=notes" class="pc-link"><span class="pc-micon"> <i class="ph ph-tree-structure"></i> </span><span
-                                class="pc-mtext">Liste des Notes</span></a>
+                    <li class="pc-item">
+                        <a href="?page=sms-history" class="pc-link"><span class="pc-micon"> <i class="ph ph-clock-counter-clockwise"></i></span><span
+                                class="pc-mtext">Historique SMS (Orange)</span></a>
+                    </li>
+                    <li class="pc-item">
+                        <a href="health.php" class="pc-link"><span class="pc-micon"> <i class="ph ph-heartbeat"></i></span><span
+                                class="pc-mtext">État du système</span></a>
                     </li>
                 </ul>
-                <div class="card nav-action-card bg-brand-color-1">
-                    <div class="card-body" style="background-image: url('../assets/images/layout/nav-card-bg.svg')">
-                        <h5 class="text-white">Upgrade to Pro</h5>
-                        <p class="text-white text-opacity-75">To get more features and components</p>
-                        <a href="https://developer.orange.com" class="btn btn-light"
-                            target="_blank">Buy now</a>
-                    </div>
-                </div>
-
             </div>
 
         </div>
@@ -130,9 +108,8 @@
     <!-- [ Header Topbar ] start -->
     <header class="pc-header">
         <div class="m-header">
-            <a href="../dashboard/index.html" class="b-brand text-primary">
-                <!-- ========   Change your logo from here   ============ -->
-                <img src="../assets/images/logo-white.svg" alt="logo image" class="logo-lg" />
+            <a href="index.php?page=dashdoards" class="b-brand">
+                <span class="fw-bold fs-4 text-white">SMS_ORANGE</span>
             </a>
         </div>
         <div class="header-wrapper"> <!-- [Mobile Media Block] start -->
@@ -178,45 +155,16 @@
                                 <div class="profile-notification-scroll position-relative" style="max-height: calc(100vh - 225px)">
                                     <ul class="list-group list-group-flush w-100">
                                         <li class="list-group-item">
-                                            <a href="https://codedthemes.com/item/gradient-able-admin-template/" target="_blank"
-                                                class="dropdown-item">
-                                                <span class="d-flex align-items-center">
-                                                    <i class="ph ph-arrow-circle-down"></i>
-                                                    <span>Download</span>
-                                                </span>
-                                            </a>
+                                            <span class="d-flex align-items-center">
+                                                <i class="ph ph-user-circle"></i>
+                                                <span><?= htmlspecialchars(auth()->user()['nom'] ?? '') ?> — <?= htmlspecialchars(auth()->user()['role'] ?? '') ?></span>
+                                            </span>
                                         </li>
                                         <li class="list-group-item">
-                                            <a href="#" class="dropdown-item">
-                                                <span class="d-flex align-items-center">
-                                                    <i class="ph ph-user-circle"></i>
-                                                    <span>Edit profile</span>
-                                                </span>
-                                            </a>
-                                            <a href="#" class="dropdown-item">
-                                                <span class="d-flex align-items-center">
-                                                    <i class="ph ph-bell"></i>
-                                                    <span>Notifications</span>
-                                                </span>
-                                            </a>
-                                            <a href="#" class="dropdown-item">
-                                                <span class="d-flex align-items-center">
-                                                    <i class="ph ph-gear-six"></i>
-                                                    <span>Settings</span>
-                                                </span>
-                                            </a>
-                                        </li>
-                                        <li class="list-group-item">
-                                            <a href="#" class="dropdown-item">
-                                                <span class="d-flex align-items-center">
-                                                    <i class="ph ph-plus-circle"></i>
-                                                    <span>Add account</span>
-                                                </span>
-                                            </a>
-                                            <a href="#" class="dropdown-item">
+                                            <a href="logout.php" class="dropdown-item">
                                                 <span class="d-flex align-items-center">
                                                     <i class="ph ph-power"></i>
-                                                    <span>Logout</span>
+                                                    <span>Déconnexion</span>
                                                 </span>
                                             </a>
                                         </li>
@@ -242,25 +190,26 @@
                     <div class="card bg-grd-primary order-card">
                         <div class="card-body">
                             <h6 class="text-white">SMS envoyé</h6>
-                            <h2 class="text-end text-white"><i class="feather icon-shopping-cart float-start"></i><span><?php echo ($_SESSION['totalSmsSend']) ?></span>
+                            <h2 class="text-end text-white"><i class="feather icon-shopping-cart float-start"></i><span><?php echo ($_SESSION['totalSmsSend'] ?? '—') ?></span>
                             </h2>
 
                         </div>
                     </div>
                 </div>
+                <?php $globalStats = getGlobalSmsStats(); ?>
                 <div class="col-md-6 col-xl-3">
                     <div class="card bg-grd-success order-card">
                         <div class="card-body">
-                            <h6 class="text-white">SMS Livré</h6>
-                            <h2 class="text-end text-white"><i class="feather icon-tag float-start"></i><span>1641</span> </h2>
+                            <h6 class="text-white">SMS envoyés (SMS_ORANGE)</h6>
+                            <h2 class="text-end text-white"><i class="feather icon-tag float-start"></i><span><?= $globalStats['envoyes'] ?></span> </h2>
                         </div>
                     </div>
                 </div>
                 <div class="col-md-6 col-xl-3">
                     <div class="card bg-grd-warning order-card">
                         <div class="card-body">
-                            <h6 class="text-white">SMS non livré</h6>
-                            <h2 class="text-end text-white"><i class="feather icon-repeat float-start"></i><span>562</span></h2>
+                            <h6 class="text-white">SMS échoués</h6>
+                            <h2 class="text-end text-white"><i class="feather icon-repeat float-start"></i><span><?= $globalStats['echecs'] ?></span></h2>
 
                         </div>
                     </div>
@@ -270,7 +219,7 @@
                     <div class="card bg-grd-danger order-card">
                         <div class="card-body">
                             <h6 class="text-white">Taux de réussite</h6>
-                            <h2 class="text-end text-white"><i class="feather icon-award float-start"></i><span>562</span></h2>
+                            <h2 class="text-end text-white"><i class="feather icon-award float-start"></i><span><?= $globalStats['taux_reussite'] ?>%</span></h2>
                         </div>
                     </div>
                 </div>
@@ -290,24 +239,20 @@
             if (isset($_GET['page'])) {
                 if ($_GET['page'] == "dashdoards") {
                     require_once('./templete/dashboard.php');
-                } else if ($_GET['page'] == "Groupes") {
-                    if (isset($_GET['details'])) {
-                        require_once('./templete/detail-groupe.php');
-                    } else {
-                        require_once('./templete/groupe.php');
-                    }
                 } else   if ($_GET['page'] == "campgagne") {
                      if (isset($_GET['details'])) {
                         require_once('./templete/detail-campagne.php');
                     } else {
                          require_once('./templete/campagne.php');
                     }
-                }else   if ($_GET['page'] == "Contacts") {
-                    require_once('./templete/contacts.php');
-                }else   if ($_GET['page'] == "notes") {
-                    require_once('./templete/sendMarksheets.php');
                 }else   if ($_GET['page'] == "sms-sender") {
                     require_once('./templete/sms-sender.php');
+                }else   if ($_GET['page'] == "rapports") {
+                    require_once('./templete/rapports.php');
+                }else   if ($_GET['page'] == "sms-history") {
+                    require_once('./templete/sms-history.php');
+                } else {
+                    require_once('./templete/404.php');
                 }
             } else {
                 require_once('./templete/404.php');
@@ -323,7 +268,7 @@
                         <div class="card-body">
                             <img src="../assets/images/widget/img-status-4.svg" alt="img" class="img-fluid img-bg" />
                             <div class="d-flex align-items-center justify-content-between mb-3 drp-div">
-                                <h3 class="f-w-300 d-flex align-items-center m-b-0"><?php echo ($_SESSION['soldeSms']) ?></h3>
+                                <h3 class="f-w-300 d-flex align-items-center m-b-0"><?php echo ($_SESSION['soldeSms'] ?? '—') ?></h3>
                             </div>
                             <div class="d-flex align-items-center mt-3">
                                 <h6 class="mb-0">SMS disponible</h6>
@@ -336,7 +281,7 @@
                         <div class="card-body">
                             <img src="../assets/images/widget/img-status-4.svg" alt="img" class="img-fluid img-bg" />
                             <div class="d-flex align-items-center justify-content-between mb-3 drp-div">
-                                <h3 class="f-w-300 d-flex align-items-center m-b-0"><?php echo ($_SESSION['dateExpiration']) ?></h3>
+                                <h3 class="f-w-300 d-flex align-items-center m-b-0"><?php echo ($_SESSION['dateExpiration'] ?? '—') ?></h3>
                             </div>
                             <div class="d-flex align-items-center mt-3">
                                 <h6 class="mb-0">Date expiration</h6>
@@ -349,7 +294,7 @@
                         <div class="card-body">
                             <img src="../assets/images/widget/img-status-4.svg" alt="img" class="img-fluid img-bg" />
                             <div class="d-flex align-items-center justify-content-between mb-3 drp-div">
-                                <h3 class="f-w-300 d-flex align-items-center m-b-0"><span class="text-success"><?php echo ($_SESSION['status']) ?></span></h3>
+                                <h3 class="f-w-300 d-flex align-items-center m-b-0"><span class="text-success"><?php echo ($_SESSION['status'] ?? '—') ?></span></h3>
                             </div>
                             <div class="d-flex align-items-center mt-3">
                                 <h6 class="mb-0">status</h6>
@@ -366,12 +311,11 @@
         <div class="footer-wrapper container-fluid">
             <div class="row">
                 <div class="col-sm-6 my-1">
-                    <p class="m-0">Gradient Able &#9829; crafted by Team <a href="https://codedthemes.com/"
-                            target="_blank">Codedthemes</a></p>
+                    <p class="m-0">SMS_ORANGE — UGLC-SC</p>
                 </div>
                 <div class="col-sm-6 ms-auto my-1">
                     <ul class="list-inline footer-link mb-0 justify-content-sm-end d-flex">
-                        <li class="list-inline-item"><a href="../index.html">Home</a></li>
+                        <li class="list-inline-item"><a href="health.php">État du système</a></li>
                     </ul>
                 </div>
             </div>
@@ -380,10 +324,6 @@
 
     <!-- [Page Specific JS] start -->
     <script src="../assets/js/plugins/apexcharts.min.js"></script>
-    <script src="../assets/js/plugins/jsvectormap.min.js"></script>
-    <script src="../assets/js/plugins/world.js"></script>
-    <script src="../assets/js/plugins/world-merc.js"></script>
-    <script src="../assets/js/pages/dashboard-sales.js"></script>
     <!-- [Page Specific JS] end -->
     <!-- Required Js -->
     <script src="../assets/js/plugins/popper.min.js"></script>
@@ -413,34 +353,61 @@
 <!-- Initialisation DataTable -->
 <script>
 $(document).ready(function() {
-    $('#groupesTable').DataTable({
-        dom: 'Bfrtip', // bouton au-dessus du tableau
-        buttons: [
-            {
-                extend: 'csvHtml5',
-                text: 'Exporter CSV',
-                className: 'btn btn-success m-1'
-            },
-            {
-                extend: 'excelHtml5',
-                text: 'Exporter Excel',
-                className: 'btn btn-success m-1'
-            },
-            {
-                extend: 'pdfHtml5',
-                text: 'Exporter PDF',
-                className: 'btn btn-danger m-1'
-            },
-            {
-                extend: 'print',
-                text: 'Imprimer',
-                className: 'btn btn-primary m-1'
-            }
-        ],
-        language: {
-            url: '//cdn.datatables.net/plug-ins/1.13.5/i18n/fr-FR.json'
+    // Traductions en dur : le fichier i18n distant (cdn.datatables.net/plug-ins/.../fr-FR.json)
+    // est bloqué par CORS depuis certains environnements et fait planter l'initialisation
+    // de DataTables (erreur "_DT_CellIndex") — voir AUDIT.md pour le détail du bug.
+    var dataTableFrFR = {
+        "sEmptyTable": "Aucune donnée disponible dans le tableau",
+        "sInfo": "Affichage de l'élément _START_ à _END_ sur _TOTAL_ éléments",
+        "sInfoEmpty": "Affichage de l'élément 0 à 0 sur 0 élément",
+        "sInfoFiltered": "(filtré à partir de _MAX_ éléments au total)",
+        "sInfoPostFix": "",
+        "sInfoThousands": " ",
+        "sLengthMenu": "Afficher _MENU_ éléments",
+        "sLoadingRecords": "Chargement...",
+        "sProcessing": "Traitement...",
+        "sSearch": "Rechercher :",
+        "sZeroRecords": "Aucun élément correspondant trouvé",
+        "oPaginate": {
+            "sFirst": "Premier",
+            "sLast": "Dernier",
+            "sNext": "Suivant",
+            "sPrevious": "Précédent"
+        },
+        "oAria": {
+            "sSortAscending": ": activer pour trier la colonne par ordre croissant",
+            "sSortDescending": ": activer pour trier la colonne par ordre décroissant"
         }
-    });
+    };
+
+    if ($('#groupesTable').length) {
+        $('#groupesTable').DataTable({
+            dom: 'Bfrtip', // bouton au-dessus du tableau
+            buttons: [
+                {
+                    extend: 'csvHtml5',
+                    text: 'Exporter CSV',
+                    className: 'btn btn-success m-1'
+                },
+                {
+                    extend: 'excelHtml5',
+                    text: 'Exporter Excel',
+                    className: 'btn btn-success m-1'
+                },
+                {
+                    extend: 'pdfHtml5',
+                    text: 'Exporter PDF',
+                    className: 'btn btn-danger m-1'
+                },
+                {
+                    extend: 'print',
+                    text: 'Imprimer',
+                    className: 'btn btn-primary m-1'
+                }
+            ],
+            language: dataTableFrFR
+        });
+    }
 });
 </script>
 

@@ -1,0 +1,553 @@
+# AUDIT DU PROJET — SMS_ORANGE (état au 2026-09-08)
+
+Ce document est le livrable de la **Phase 1** du cahier des charges SMS_ORANGE V2.0 : audit complet du code existant avant toute réécriture. Aucune suppression n'a été effectuée à ce stade.
+
+---
+
+## 1. Architecture actuelle
+
+Application PHP procédurale (pas de framework, pas d'autoloading applicatif — seul `vendor/autoload.php` de Composer est utilisé pour la lib Orange).
+
+```
+sms_orange/
+├── app/
+│   ├── index.php              -> shell HTML (sidebar/header), routeur par $_GET['page']
+│   └── templete/               -> fragments de vue, mélangent HTML + accès DB direct
+│       ├── dashboard.php       (envoi SMS unique + liste campagnes factice)
+│       ├── groupe.php / detail-groupe.php
+│       ├── campagne.php / detail-campagne.php / campagne-list.php (doublon)
+│       ├── contacts.php        (données 100% statiques/factices)
+│       ├── sms-sender.php      (données 100% statiques/factices)
+│       └── sendMarksheets.php  (envoi des résultats — cœur métier actuel)
+├── server/
+│   ├── config.php              -> connexion PDO + client Orange + TOUTES les fonctions de requête (God file)
+│   ├── app.php                 -> tous les handlers POST (create_group, import_csv, add_contact,
+│   │                              single-sender, create_campagne, importMessage_csv) dans un seul fichier
+│   ├── infosAPI.php            -> synchronise solde/statut/historique Orange dans $_SESSION
+│   ├── layout.php              -> fonction ListGroupe() (rendu HTML depuis PHP, couplage fort)
+│   ├── index.php               -> test de connexion autonome vers la base "school" (voir §5)
+│   ├── index.html              -> page Apache2 "It works" par défaut, oubliée
+│   ├── sms_log.txt             -> log texte brut, vide actuellement
+│   ├── credit.php, viaCsv.php, lot.php, send_sms.php, send.php  -> scripts autonomes redondants (voir §4)
+├── pages/
+│   ├── login-v1.html, register-v1.html  -> HTML statique, jamais connecté au backend
+├── assets/                     -> thème admin Bootstrap 5 "Gradient Able" (codedthemes), 100% front statique
+├── vendor/                     -> Composer (mediumart/orange-sms + Guzzle/PSR-7)
+├── composer.json               -> une seule dépendance déclarée
+└── .env                        -> présent mais VIDE (aucune variable chargée nulle part, aucun lib dotenv)
+```
+
+**Flux d'envoi SMS actuel (fonctionnel) :**
+`app/templete/dashboard.php` (formulaire) → POST `server/app.php` (`single-sender`) → validation regex `+224|00224` + `6\d{8}` → `$sms->message()->from()->to()->send()` (SDK `mediumart/orange-sms`, instancié dans `config.php`) → redirection avec message flash en session.
+
+**Flux d'import (fonctionnel) :**
+CSV `Nom,Telephone,email` → `server/app.php` (`import_csv`) → insertion `contacts` + `groupe_contacts` (groupe codé en dur `:group => 1`).
+
+**Flux "résultats scolaires" (fonctionnel, cœur métier actuel) :**
+CSV `telephone,message,matricule,notes,niveau` importé via `app.php` (`importMessage_csv`) → une ligne par (destinataire, matricule) est insérée dans `messages`, `campagne_id` obligatoire. `app/templete/sendMarksheets.php` regroupe ensuite via `STRING_AGG(...)` par `(destinataire, matricule, niveaux)` pour reconstituer un message composite, l'affiche dans un modal pré-rempli, et l'envoi repasse par le handler générique `single-sender` de `app.php`.
+→ Il n'existe **aucune table `students`/`grades`/`sessions`**. Les "résultats" sont un texte libre stocké dans `messages.contenu` + `messages.notes`, sans lien avec un système scolaire structuré.
+
+---
+
+## 2. Structure réelle de la base de données (vérifiée en direct)
+
+Deux configurations DB coexistent dans le code, avec des rôles très différents :
+
+### `apiSms` (PostgreSQL, user `postgres`) — **la base réellement utilisée par l'application**
+Connexion : `server/config.php`, fonction `PDO()`. Contenu vérifié :
+
+| Table | Rôle | Lignes (au 2026-09-08) |
+|---|---|---|
+| `groupes` | groupes de contacts | 1 |
+| `contacts` | contacts (nom, téléphone, email) | 3296 |
+| `groupe_contacts` | liaison N-N groupe↔contact | 3296 |
+| `campagne` | campagnes (nom, dates, statut) | 0 |
+| `messages` | SMS à envoyer, `campagne_id` NOT NULL, colonnes `matricule/notes/niveaux` ajoutées après coup pour les résultats scolaires | 0 |
+| `sms` | table "SMS envoyé" (sender_name, message, statut, utilisateur_id) — **jamais utilisée par le code applicatif** | 0 |
+| `sms_destinataires` | destinataires d'un envoi groupé, avec `retour_api jsonb` — **jamais utilisée par le code applicatif** | 0 |
+| `utilisateurs` | id, nom, email, mot_de_passe, **role**, date_creation — **table d'auth prête en base mais aucun code ne la lit/écrit** | 0 |
+
+Constat clé : la base contient déjà une ébauche de modèle plus avancé (`sms`, `sms_destinataires`, `utilisateurs` avec rôle) qui a été commencée puis abandonnée au profit du couple `campagne`/`messages`, plus simple mais sans granularité par destinataire (pas de tracking individuel succès/échec, pas d'idempotence, pas de retry).
+
+### `school` (PostgreSQL, user `userdbSchool`) — **inaccessible, isolée**
+Connexion : `server/index.php` (script autonome, appelé nulle part ailleurs dans l'app). Test de connexion effectué : **échec d'authentification** (mot de passe invalide pour `userdbSchool`). Ce fichier ne fait qu'afficher "✅/❌ Connexion" et n'a aucune fonction — c'est un script de test isolé, probablement un essai de connexion au futur/existant système scolaire (matricules, notes, classes) qui n'a jamais été branché au reste de l'application. Aucune donnée scolaire structurée n'existe donc actuellement : tout passe par le texte libre dans `messages`.
+
+**Aucun index** au-delà des clés primaires n'a été trouvé sur `contacts.telephone`, `messages.campagne_id`, `messages.matricule` — problématique dès que le volume dépasse quelques milliers de lignes (recherche de doublon de téléphone = scan séquentiel sur 3296 lignes à chaque insertion).
+
+---
+
+## 3. Dépendances
+
+- **Déclarée** (`composer.json`) : `mediumart/orange-sms: ^2.0` uniquement.
+- **Résolues via composer.lock/vendor** : guzzlehttp/guzzle + psr7 + psr/http-* + symfony/deprecation-contracts + ralouphie/getallheaders — toutes des dépendances transitives de Guzzle, rien d'inutile ici.
+- **Frontend** : 100% CDN (jQuery, DataTables 1.13.5 + Buttons, AlertifyJS, Google Fonts Poppins) + assets locaux du thème Bootstrap "Gradient Able" (Apex Charts, jsvectormap, Feather/Tabler/FontAwesome icons — chargés globalement même quand non utilisés sur la page courante).
+- **`.env`** présent mais vide et **non lu** : aucune librairie dotenv (vlucas/phpdotenv ou autre) n'est installée ni requise. Sa seule existence dans le repo aujourd'hui est trompeuse (donne l'illusion d'une config par env alors que tout est en dur).
+
+---
+
+## 4. Audit des scripts historiques (`server/*.php`)
+
+| Fichier | Statut | Constat |
+|---|---|---|
+| `server/config.php` | **À CONSERVER (à découper)** | Connexion DB + client Orange + 12 fonctions métier. Utilisé par `app.php`, `layout.php`, toutes les vues. Point d'entrée central, mais viole la séparation des responsabilités (§49 du cahier des charges). |
+| `server/app.php` | **À CONSERVER (à découper)** | Seul point d'entrée POST réellement utilisé par l'UI actuelle (tous les formulaires pointent vers lui). Contient un bloc mort commenté (l. 184-205, 309-359) à supprimer. |
+| `server/infosAPI.php` | **UTILISÉ** | Appelé par `app/index.php`, uniquement quand `page=dashdoards`. Fait 4 appels API Orange synchrones à chaque chargement du dashboard (pas de cache) — problème de performance/latence (§27, §51). |
+| `server/layout.php` | **À CONSERVER (à migrer)** | Une seule fonction (`ListGroupe`) qui produit du HTML depuis PHP — à remplacer par une vraie vue/template. |
+| `server/index.php` | **OBSOLETE** | Script de test de connexion à une base `school` inexploitable (mauvais mot de passe), non inclus par aucun autre fichier. Candidat à la suppression après confirmation qu'aucune intégration "school" n'est prévue à court terme. |
+| `server/index.html` | **OBSOLETE** | Page par défaut Apache2 "It works", aucune valeur, à supprimer. |
+| `server/credit.php` | **DUPLICATE / OBSOLETE** | Script CLI autonome (ré-instancie son propre client Orange avec des placeholders `<client_id>`) pour tester solde + stats + envoi. Fait doublon avec `infosAPI.php` et `config.php`. Non lié à l'UI. |
+| `server/viaCsv.php` | **DUPLICATE / OBSOLETE** | Envoi CSV en CLI (placeholders), non lié à l'UI, fait doublon fonctionnel avec `app.php`/`importMessage_csv` et avec `send_sms.php`. |
+| `server/lot.php` | **DUPLICATE / OBSOLETE** | Envoi par lots de 500 avec `usleep(200000)` entre chaque SMS — bonne intuition (rate limiting, log fichier) mais placeholders `<client_id>`, non lié à l'UI, et l'approche "boucle synchrone dans un seul script" est justement ce que le cahier des charges interdit (§5) pour 10 000+ étudiants. À garder comme référence d'algorithme de rate-limiting, pas comme code de prod. |
+| `server/send_sms.php` | **UTILISÉ (partiellement)** | Cible réelle du formulaire "Créer une campagne" (`app/templete/campagne.php` et `campagne-list.php`, action `../server/send_sms.php`). Contient les **identifiants Orange en dur** (les mêmes que `config.php`). Boucle synchrone `while(fgetcsv)` avec `usleep(200000)` — bloque le navigateur le temps de l'envoi complet, viole directement §5/§34 pour un volume important. Log dans `sms_log.txt` à la racine de `server/` (chemin relatif fragile selon le CWD du process PHP). |
+| `server/send.php` | **DUPLICATE / OBSOLETE** | Endpoint POST minimal (`numero`,`message`) avec identifiants en dur et un numéro expéditeur différent (`+224627447348` vs `+224620000000` ailleurs) — aucune vue ne pointe dessus. Probablement un script de test laissé dans le repo. |
+
+**Doublons de logique d'envoi identifiés** : `app.php` (single-sender), `send_sms.php`, `send.php`, `lot.php`, `viaCsv.php`, `credit.php` réimplémentent chacun leur propre instanciation `SMSClient`/`SMS`, avec des identifiants copiés-collés en dur à 4 endroits différents. C'est le problème n°1 à corriger avant toute nouvelle fonctionnalité (§28, §29).
+
+**Vue doublon** : `app/templete/campagne-list.php` vs `campagne.php` — la première semble être un brouillon abandonné (données 100% factices, aucune référence dans le routeur `app/index.php`, donc **jamais rendue**). Candidate à la suppression.
+
+**Pages jamais routées** (liens présents dans le sidebar mais sans handler dans `app/index.php`) :
+- `?page=rapports` → aucun `require_once` correspondant, page blanche.
+- `?page=notes` fonctionne mais le lien s'appelle "Liste des Notes" alors que le contenu réel gère l'envoi des résultats (`sendMarksheets.php`) — incohérence de nommage UX.
+- `templete/404.php`, référencé comme fallback dans `app/index.php` ligne ~313, **n'existe pas** → tout accès sans `?page=` produit une `Warning: require_once(...): Failed to open stream`.
+
+---
+
+## 5. Problèmes de sécurité (par gravité)
+
+1. **CRITIQUE — Secrets en clair dans le code versionné** : `client_id`/`client_secret` Orange (identiques dans `config.php`, `app.php` implicitement via `require`, `send_sms.php`, `send.php`, `credit.php`, `viaCsv.php`, `lot.php`) + mot de passe PostgreSQL (`stratus05@1993`, présent en clair dans `config.php` **et** `server/index.php`) sont committés dans le dépôt git. **Recommandation immédiate : régénérer le client_secret Orange et le mot de passe PostgreSQL dès que possible**, indépendamment de la refonte — ces secrets sont compromis dès l'instant où ils sont dans l'historique git.
+2. **ÉLEVÉ — Aucune authentification** : `app/index.php` n'a aucun contrôle de session/login. Les pages `pages/login-v1.html` et `register-v1.html` sont des maquettes HTML statiques non connectées ; n'importe qui accédant à l'URL peut créer des campagnes, importer des contacts et envoyer des SMS (donc consommer le solde Orange payant).
+3. **ÉLEVÉ — Pas de protection CSRF** sur les formulaires POST (`create_group`, `single-sender`, `create_campagne`, imports CSV) : un simple lien/formulaire externe pourrait déclencher un envoi de SMS ou une création de campagne au nom de l'admin connecté.
+4. **MOYEN — Upload CSV non validé** : `import_csv`/`importMessage_csv` acceptent tout fichier envoyé sous le nom `csvFile` sans vérifier l'extension, le type MIME ni la taille ; le contenu est lu ligne à ligne sans limite (`fgetcsv` sans borne réelle de nombre de lignes).
+5. **MOYEN — Pas d'échappement XSS systématique** : la plupart des vues font `echo $variable` brut (`dashboard.php`, `groupe.php` via `ListGroupe()`) sans `htmlspecialchars`, alors que certaines données viennent d'imports CSV utilisateur (nom, description). `detail-groupe.php`/`detail-campagne.php` échappent parfois (`htmlspecialchars`) et parfois non (incohérence).
+6. **MOYEN — Injection potentielle via en-tête HTTP** : tous les handlers de `app.php` font `header("Location: " . $_SERVER['HTTP_REFERER'])` sans validation — un `Referer` forgé pourrait rediriger vers un site externe (open redirect), et `HTTP_REFERER` peut être absent (notice PHP).
+7. **FAIBLE — Erreurs PDO affichées à l'écran** (`echo "❌ Erreur de connexion : " . $e->getMessage()`) : fuite d'information (nom d'hôte, structure) en cas d'erreur, à réserver aux logs.
+8. **FAIBLE — Numéro expéditeur incohérent** : `+224620000000` (app.php), `+224627447348` (send.php), `SCOL_UGLCS` (lot.php) — aucune source de vérité unique pour l'identité d'expéditeur validée chez Orange.
+
+---
+
+## 6. Problèmes d'architecture
+
+- **Aucune séparation des responsabilités** : `config.php` mélange connexion DB, client API, et 12 fonctions métier de requête (SRP violée, §49).
+- **Couplage vue/données fort** : les templates (`app/templete/*.php`) appellent directement des fonctions de requête (`getGroupes()`, `getCampagne()`, `getMessageSenderMarksheet()`) — pas de couche service/repository, aucun moyen de tester la logique sans un serveur web + une base réelle.
+- **God functions à effet de bord** : `getMessageSenderMarksheet()` fait un `STRING_AGG` global sans pagination — dès que la table `messages` contient des dizaines de milliers de lignes, la page `notes` chargera tout en mémoire d'un coup (§33, §34 explicitement visés).
+- **Pas de couche d'abstraction Orange** : le SDK `mediumart/orange-sms` est instancié directement dans 7 fichiers différents avec des identifiants dupliqués — remplacer de fournisseur ou changer une politique de retry demanderait de modifier 7 fichiers.
+- **Pas de file d'attente / traitement par lot** : chaque "envoi de campagne" est une boucle PHP synchrone dans la requête HTTP (`send_sms.php`), strictement l'anti-pattern documenté en §5 du cahier des charges — pour 10 000 étudiants, timeout HTTP quasi garanti (le `php.ini` XAMPP par défaut a `max_execution_time=30s`, largement insuffisant avec `usleep(200ms)` × 10 000 = 2000s).
+- **Pas d'idempotence** : rien n'empêche de ré-importer/ré-envoyer deux fois le même message (aucune contrainte unique sur `(campagne_id, matricule)` ou équivalent dans `messages`).
+- **Groupe codé en dur** : tout contact importé est rattaché au `groupe_id = 1` en dur dans `app.php` (l.84, l.135), qu'importe le groupe réellement sélectionné dans le formulaire d'import (`$_POST['group_id']` est lu mais jamais utilisé pour la liaison réelle) — **bug fonctionnel actif**, pas seulement une dette technique.
+
+## 7. Problèmes de performance
+
+- Recherche de doublon de téléphone (`phoneExiste`) = requête sans index sur 3296 lignes à chaque insertion CSV, en boucle → O(n×m) pour un import.
+- `infosAPI.php` fait 4 appels réseau synchrones vers l'API Orange à **chaque** chargement de `?page=dashdoards`, sans cache ni décision de fréquence de sync (§27 demande une notion de "dernière synchronisation").
+- Aucune pagination nulle part : `getGroupes()`, `getCampagne()`, `getMessageSenderMarksheet()` chargent l'intégralité de la table, DataTables ne fait que du rendu côté client sur un jeu déjà entièrement chargé dans le HTML.
+- Boucle d'envoi bloquante (`send_sms.php`, `lot.php`) : latence perçue = somme des latences API Orange, aucun parallélisme ni file d'attente.
+
+## 8. Problèmes UX/UI
+
+- Le thème "Gradient Able" est un template générique de démo (liens "Buy now" vers `developer.orange.com`, footer "crafted by Codedthemes", logo par défaut) — aucune identité "SMS_ORANGE" (§67).
+- Données factices affichées comme si elles étaient réelles : `campagne-list.php`, `contacts.php`, `sms-sender.php` montrent des lignes "Jacqueline Howell / PNG002156" codées en dur — trompeur pour un utilisateur réel.
+- KPI dashboard partiellement câblés : "SMS envoyé" vient de l'API Orange (réel), mais "SMS Livré" (1641), "SMS non livré" (562), "Taux de réussite" (562) sont des **constantes codées en dur** dans `app/templete/dashboard.php` — donnent une fausse impression de suivi.
+- Aucun état vide/chargement/erreur cohérent (§41) : listes vides affichent un tableau sans lignes sans message explicite ; pas de spinner pendant l'envoi.
+- Incohérence de nommage : menu "Liste des Notes" → fonctionnalité réelle = "Envoyer les résultats scolaires par SMS" (fonctionnalité n°1 du produit cible, actuellement la moins mise en avant dans l'UI).
+- Pas de confirmation avant actions critiques (§39) : la création de groupe/campagne et l'envoi simple n'ont pas de `alertify.confirm` côté serveur (le seul `alertify.confirm` existant, dans `assets/js/ajax.js`, cible un formulaire `#formGroupe` qui n'existe dans **aucune** vue actuelle — code mort/orphelin).
+
+---
+
+## 9. Recommandations (ordre de priorité pour la suite)
+
+1. **Sécurité immédiate, hors refonte** : régénérer le secret Orange et le mot de passe PostgreSQL maintenant qu'ils sont identifiés comme exposés dans l'historique git ; ne pas attendre la fin du chantier.
+2. **Phase Config/Sécurité** : introduire `vlucas/phpdotenv`, un seul point de config (`config/env.php`), supprimer les 7 duplications d'identifiants, corriger le bug du `groupe_id` codé en dur.
+3. **Phase Service Orange** : encapsuler le SDK dans `OrangeSmsService` (authenticate/getBalance/sendSms/getStatistics/getHistory), avec cache du solde et timeouts explicites.
+4. **Phase Base de données** : conserver `apiSms` comme unique source de vérité pour l'app SMS ; concevoir un schéma cible additif (campaigns/campaign_recipients/sms_logs) sans supprimer `contacts`/`groupes` existants (3296 contacts réels à préserver) ; ajouter les index manquants (`telephone`, `campaign_id`, `status`).
+5. **Phase Moteur d'envoi massif** : remplacer les boucles synchrones (`send_sms.php`, `app.php`) par le modèle campagne → destinataires → traitement par lot avec verrouillage (`FOR UPDATE SKIP LOCKED`), seule façon de tenir la charge visée (10 000+ SMS) sans timeout HTTP.
+6. **Nettoyage différé** : archiver (ne pas supprimer immédiatement) `credit.php`, `viaCsv.php`, `lot.php`, `send.php`, `server/index.php`, `server/index.html`, `campagne-list.php` une fois leur logique utile absorbée dans les nouveaux services — aucun de ces fichiers n'est actuellement lié à une vue active, sauf `send_sms.php` (à migrer en priorité car c'est le point d'entrée réel du bouton "Créer une campagne").
+7. **Auth/rôles** : la table `utilisateurs` existe déjà en base avec un champ `role` — elle peut servir de socle direct à la Phase Authentification sans migration de schéma supplémentaire.
+
+---
+
+*Prochaine étape : Phase 2 — Architecture cible détaillée, schéma de base de données cible, et démarrage de la Phase 4 (Sécurité/Configuration), comme convenu dans le plan de migration.*
+
+---
+
+# JOURNAL DES PHASES
+
+## Phase 4 — Sécurité / Configuration (terminée le 2026-09-08)
+
+**Objectif** : supprimer les identifiants en dur, centraliser la connexion DB et le client Orange, corriger le bug fonctionnel du `groupe_id` figé.
+
+**Fichiers créés :**
+- `.env` (rempli avec les vraies valeurs, non versionné désormais), `.env.example` (gabarit versionné), `.gitignore`
+- `config/bootstrap.php` — charge `.env` via `vlucas/phpdotenv`, expose `env()`
+- `config/database.php` — expose `db()` : connexion PDO **unique et réutilisée** (remplace l'ancienne `PDO()` qui ouvrait une nouvelle connexion à chaque requête SQL)
+- `config/orange.php` — expose `orangeSms()` : instance partagée de `OrangeSmsService`
+- `src/Services/OrangeSmsService.php` — encapsule le SDK `mediumart/orange-sms` (§28) avec **cache du token d'accès** sur disque (`storage/cache/orange_token.json`, 60s de marge avant expiration) pour ne plus ré-authentifier à chaque envoi (§52)
+- `storage/cache/`, `storage/logs/` (structure de dossiers prête pour la suite)
+
+**Fichiers modifiés :**
+- `server/config.php` — suppression des identifiants Orange/PostgreSQL en dur ; `PDO()` délègue maintenant à `db()` (conservée pour compatibilité, aucune fonction métier existante n'a changé de signature)
+- `server/app.php` — envoi simple routé via `orangeSms()->sendSms()` ; **correction du bug** où tout contact importé (CSV ou formulaire) était systématiquement rattaché à `groupe_id = 1` au lieu du groupe réellement sélectionné ; les contacts déjà existants (même téléphone) sont maintenant rattachés au groupe via leur `contact_id` réel au lieu de générer un `contact_id` fantôme jamais inséré ; suppression des blocs de code mort commentés (§66)
+- `server/infosAPI.php` — utilise `orangeSms()->getBalance()/getHistory()/getTotalSmsSent()` au lieu du SDK direct
+- `server/send_sms.php` (cible réelle du bouton "Créer une campagne") — identifiants en dur supprimés, envoi routé via `orangeSms()->sendSms()`. **Non résolu à ce stade** : la boucle reste synchrone et bloquante (`usleep` par SMS dans la requête HTTP) — sera remplacé par le moteur de campagnes en file d'attente (Phase 6, priorité suivante).
+- `composer.json` — ajout de `vlucas/phpdotenv`, autoload PSR-4 `App\` → `src/`
+
+**Fichiers non touchés à dessein** (dette technique documentée, pas encore corrigée) : `server/credit.php`, `server/viaCsv.php`, `server/lot.php`, `server/send.php`, `server/index.php`, `server/index.html`, `app/templete/campagne-list.php` — toujours identifiés comme obsolètes/doublons (§4), à archiver en Phase 13 (nettoyage) une fois toute logique utile absorbée.
+
+**Modifications DB** : aucune. Le schéma `apiSms` n'a pas été touché (aucune table créée/modifiée) — cette phase ne concernait que la couche application.
+
+**Risques identifiés** :
+- Le fichier `storage/cache/orange_token.json` contient un token d'accès Orange valide temporairement : ajouté au `.gitignore`, mais à surveiller si l'app est un jour déployée en environnement multi-utilisateur (le cache est actuellement partagé par fichier, pas par utilisateur — cohérent avec un usage mono-tenant actuel).
+- `.env` a été retiré du suivi git (`git rm --cached`) mais **reste dans l'historique** du dépôt (commit "first commit 02082025") avec les anciennes valeurs vides — sans impact puisqu'il était vide, mais les secrets eux-mêmes (qui étaient dans `config.php`/`send_sms.php`/etc., pas dans `.env`) restent, eux, dans l'historique. Confirme la recommandation déjà faite : **régénérer le secret Orange et le mot de passe PostgreSQL**.
+
+**Tests réalisés** :
+1. `php -l` sur les 8 fichiers créés/modifiés → aucune erreur de syntaxe.
+2. Script de fumée (`db()` singleton, `getGroupes()`, `orangeSms()->getBalance()`) exécuté en CLI → connexion DB OK (1 groupe réel retrouvé), même instance PDO réutilisée, authentification Orange + lecture de solde OK.
+3. Serveur PHP intégré démarré sur le vrai code (`app/index.php?page=dashdoards`) → **HTTP 200, aucun warning/notice/fatal**, KPI "SMS envoyé" affiche la vraie valeur (209) obtenue via l'API Orange.
+
+**⚠️ Constat opérationnel découvert pendant les tests (indépendant du code)** : l'appel réel à l'API Orange renvoie `"status": "EXPIRED"` avec `"expirationDate": "2025-12-11"` et `"availableUnits": 906`. **Le contrat SMS Orange actuel est expiré** alors que l'application affiche encore un solde disponible — à vérifier/renouveler auprès d'Orange avant toute campagne réelle, indépendamment de la suite du chantier.
+
+**Résultat** : la fonctionnalité existante (envoi simple, import CSV contacts, dashboard, solde Orange) continue de fonctionner à l'identique pour l'utilisateur, sans secret en dur dans le code applicatif actif, avec une connexion DB et un client Orange désormais centralisés et réutilisables par les phases suivantes.
+
+*Prochaine étape : Phase 6 — Moteur d'envoi massif (campagnes → destinataires → file d'attente par lots), qui remplacera la boucle synchrone de `send_sms.php` et posera le socle du module "Résultats académiques" (fonctionnalité n°1 du produit).*
+
+## Phase 6 — Moteur d'envoi massif (terminée le 2026-09-08)
+
+**Objectif** : remplacer la boucle synchrone bloquante (`send_sms.php`) par le modèle campagne → destinataires → file d'attente par lots décrit en §5-§9, sans exiger Redis ni serveur de queue dédié (§54), en restant déployable tel quel sous XAMPP.
+
+**Fichiers créés :**
+- `database/migrations/001_campaign_engine.sql` + `database/migrate.php` — mini-runner de migrations (une table `schema_migrations`, aucun framework imposé, §48). **Migration appliquée sur `apiSms` avec ton accord explicite** : uniquement des `ADD COLUMN IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`, aucune suppression, les 3296 contacts et le groupe existant sont intacts.
+- `src/Services/PhoneNumberService.php` — normalisation des numéros guinéens (622xxxxxx / +224622xxxxxx / 00224622xxxxxx → +224622xxxxxx), rejette tout ce qui n'est pas un mobile guinéen valide (§10).
+- `src/Services/CampaignQueueService.php` — cœur du moteur : `createCampaign`, `addRecipients` (validation + idempotence via `unique_key`, §7), `queueCampaign`/`pause`/`resume`/`cancel`/`retryFailed` (§20-§21), `claimBatch` (`SELECT ... FOR UPDATE SKIP LOCKED`, §55, transaction courte — jamais ouverte pendant l'envoi réel, §53), `processRecipient` (envoi + classification d'erreur §8 + décision de retry §9), `getProgress` (bascule automatique QUEUED→RUNNING→COMPLETED/PARTIAL, §18-§19).
+- `config/services.php` — expose `campaignQueue()`.
+- `server/campaign_worker.php` — endpoint appelé en boucle par le navigateur (polling AJAX) : traite **un seul lot** par appel et rend la main, donc n'bloque jamais la requête HTTP (§5) ; c'est la solution "pas de vraie queue disponible" prévue par le §54.
+- `bin/process-campaign.php` — worker CLI pour un vrai déploiement (cron / Planificateur de tâches Windows, §79) : `php bin/process-campaign.php <id>` vide une campagne, `--daemon` traite en continu toute campagne QUEUED/RUNNING.
+
+**Modifications DB** : voir migration ci-dessus. Colonnes ajoutées sur `campagne` (type, total_destinataires, nombre_envoyes, nombre_echecs, batch_size, created_by, date_lancement, date_completion, dry_run) et sur `messages` (unique_key, tentative_count, error_code, error_message, locked_at, date_traitement, provider_message_id) + index sur `contacts.telephone`, `messages.campagne_id+statut`, `messages.matricule`.
+
+**`getSingleCampagne()` modifiée** (`server/config.php`) pour faire `SELECT *` au lieu d'une liste de colonnes figée — sinon les nouvelles colonnes (dry_run, batch_size...) restaient invisibles au reste du code. Sans impact sur les appelants existants (ils ne lisaient que des clés qui existent toujours).
+
+**Non fait à ce stade (volontairement)** : aucune UI n'utilise encore ce moteur — `send_sms.php` et les vues de campagne actuelles n'ont pas été branchées dessus. C'est la prochaine étape logique (Phase 7/8 : brancher le formulaire de campagne + le module résultats académiques sur `CampaignQueueService` au lieu de l'ancien chemin direct).
+
+**Tests réalisés (avec de vraies requêtes contre `apiSms`, en mode `dry_run` pour ne jamais consommer le solde Orange expiré) :**
+1. Normalisation téléphone : 6 formats valides + 2 invalides (dont un numéro ivoirien +225 pour vérifier le rejet hors-Guinée) → tous corrects.
+2. Cycle de vie complet d'une campagne de 27 lignes (25 valides, 1 invalide, 1 doublon exact) : `addRecipients` → added=25/duplicates=1/invalid=1 ; traitement en 3 lots (taille 10) → statut bascule DRAFT→QUEUED→RUNNING→COMPLETED automatiquement.
+3. Re-import strictement identique → added=0/duplicates=26 (idempotence confirmée par l'index unique).
+4. Deux `claimBatch()` consécutifs sur une file vide → 0 et 0 (pas de double traitement).
+5. Worker CLI (`bin/process-campaign.php <id>`) sur une campagne de 7 puis 8 destinataires avec `batch_size=5` → traite en plusieurs passes, log de progression correct, s'arrête proprement une fois `COMPLETED`.
+6. Worker HTTP (`server/campaign_worker.php`) interrogé via de vraies requêtes `curl` sur un serveur PHP réel → réponses JSON correctes à chaque poll, campagne complétée en 2 appels, les appels suivants ne retraitent rien.
+7. **Bug trouvé et corrigé pendant les tests** : `getSingleCampagne()` ne remontait pas les nouvelles colonnes → `Undefined array key "dry_run"` dans le worker CLI. Corrigé en passant la requête en `SELECT *`.
+8. Toutes les données de test (5 campagnes `type='test'`, 77 destinataires factices) supprimées après validation, avec ton accord — aucune donnée réelle touchée.
+
+**Risques identifiés** :
+- Le worker AJAX dépend du navigateur resté ouvert sur la page de progression ; si l'admin ferme l'onglet en plein envoi, la campagne reste `RUNNING` avec des destinataires `en_attente` — reprenable sans perte (relancer un poll ou le worker CLI reprend exactement où c'était), mais aucune UI ne le fait encore automatiquement. Le worker CLI (`--daemon`) est la solution robuste pour une vraie mise en production et ne dépend d'aucun onglet ouvert.
+- `claimBatch` utilise `FOR UPDATE SKIP LOCKED`, disponible depuis PostgreSQL 9.5 — à vérifier que la version en production le supporte (quasi certain, mais non vérifié ici faute d'accès à `SELECT version()` testé explicitement).
+
+**Résultat** : le socle du moteur d'envoi massif est fonctionnel et testé de bout en bout (CLI et HTTP), sans dépendance nouvelle (pas de Redis), déployable tel quel sous XAMPP, avec un chemin de mise à niveau documenté vers un vrai worker cron pour la production.
+
+*Prochaine étape : Phase 7/8 — brancher ce moteur sur une vraie interface de campagne (sélection session/niveau/classe/semestre comme décrit en §3-§4, écran de progression en temps réel) et sur le module "Résultats académiques", en remplacement des vues actuelles à données factices.*
+
+## Phase 7/8 — Interface de campagne + module Résultats académiques (terminée le 2026-09-08)
+
+**Objectif** : brancher le moteur de la Phase 6 sur une vraie interface (fonctionnalité n°1 du cahier des charges, §3-§4), en remplaçant les chemins directs vers `send_sms.php` par le cycle DRAFT → import → lancement → suivi en temps réel.
+
+**Modèle retenu pour les "résultats académiques"** : la base actuelle n'a ni table `students` ni colonnes session/classe/programme/semestre (voir audit §2) — seul un champ `niveaux` existe réellement, alimenté par le CSV. Plutôt que d'ajouter des filtres sur des colonnes qui n'existent pas (ça aurait recréé le problème "données factices" déjà relevé en §8 de l'audit), la sélection du §3 est faite sur ce qui est réellement disponible : **niveau réel + session/semestre saisis en texte libre**, qui deviennent le nom/la description de la campagne. Une vraie table `students`/`sessions` reste une évolution possible si un référentiel scolaire structuré existe un jour (voir §61 du cahier des charges) — non fabriquée ici.
+
+**Deux campagnes désormais distinctes, volontairement** :
+1. **Campagne "brute"** (créée via "Créer une campagne") : reçoit l'import CSV `telephone,message,matricule,notes,niveau` tel quel — une ligne CSV = une ligne `messages` (peut être plusieurs lignes par étudiant, ex. une par matière).
+2. **Campagne "consolidée"** (créée automatiquement par "Préparer la campagne" depuis l'écran Résultats) : une ligne = un étudiant, message composite obtenu via `STRING_AGG` (logique déjà existante, réutilisée). C'est cette campagne consolidée qui est réellement mise en file d'attente et envoyée.
+
+**Fichiers modifiés :**
+- `app/templete/sendMarksheets.php` — ajout d'un filtre par niveau, d'un aperçu (§3-§4 : nombre d'étudiants, numéros valides/invalides, coût SMS estimé) et du bouton "Préparer la campagne" avec confirmation avant action critique (§39).
+- `app/templete/detail-campagne.php` — réécrite : bouton "Lancer l'envoi" (DRAFT→QUEUED), pause/reprise/annulation (§20), barre de progression en temps réel par polling JS sur `campaign_worker.php` (§6), rapport final avec bouton "Réessayer les échecs" (§21), modal d'import CSV conservée (ciblant désormais la campagne courante). L'ancien bloc `$group['id']` mort et cassé (variable jamais définie dans ce fichier) a été supprimé au passage.
+- `app/templete/campagne.php` — suppression du mini-formulaire qui postait directement vers `send_sms.php` (contournait tout le moteur, sans idempotence ni suivi) ; la création de campagne passe uniquement par le modal existant, qui route maintenant vers `CampaignQueueService::createCampaign()`.
+- `server/app.php` — nouveaux handlers `prepare_resultats_campagne`, `launch_campagne`, `pause_campagne`, `resume_campagne`, `cancel_campagne`, `retry_campagne_failures` ; `create_campagne` route désormais vers le moteur au lieu d'un `INSERT` direct (sinon les campagnes créées via ce formulaire restaient au statut `en_attente`, invisible pour le nouveau moteur qui attend `DRAFT`) ; normalisation téléphone (`PhoneNumberService`) appliquée à l'import CSV de résultats, qui faisait auparavant une concaténation `'+224'.$numero` aveugle (cassait tout numéro déjà préfixé).
+- `server/config.php` — `getMessageCampagne()` remonte maintenant aussi `matricule`, `error_code`, `error_message`, `tentative_count`, `date_traitement` pour alimenter le journal (§19).
+- `app/index.php` — correction de 4 warnings PHP pré-existants (`Undefined array key totalSmsSend/soldeSms/dateExpiration/status`) qui s'affichaient sur **toutes** les pages autres que le dashboard, depuis toujours (les variables de session ne sont peuplées que sur `?page=dashdoards`) — sans lien avec cette phase mais trouvé et corrigé en testant chaque page.
+- `database/migrations/002_campaign_status_default.sql` — corrige la valeur par défaut de `campagne.statut` (`en_attente` → `DRAFT`) pour rester cohérent si un `INSERT` direct était fait un jour. **Appliquée sur `apiSms`** (additive, sans risque).
+
+**Bug trouvé et corrigé pendant les tests** : `CampaignQueueService::getProgress()` ne faisait passer une campagne à `COMPLETED`/`PARTIAL` que si elle était déjà `RUNNING` — une campagne qui se termine en un seul lot (cas courant pour une petite classe, ex. moins de 50 étudiants avec la taille de lot par défaut) restait bloquée au statut `QUEUED` indéfiniment alors que tous les SMS étaient bien envoyés. Corrigé pour accepter `QUEUED` ou `RUNNING` comme état de départ.
+
+**Tests réalisés (vraies requêtes HTTP contre un serveur PHP réel et la base `apiSms`, en mode dry-run) :**
+1. Création de campagne via le formulaire réel (`create_campagne`) → redirection correcte vers l'écran détail, statut `DRAFT`.
+2. Import d'un CSV réel de résultats (4 lignes valides dont 2 pour le même étudiant, 1 ligne avec numéro invalide) → la ligne invalide est rejetée à l'import (avant, elle aurait été insérée avec un numéro cassé) ; les 3 destinataires valides apparaissent dans le journal de la campagne "brute".
+3. Écran Résultats académiques → aperçu correct (3 étudiants, 3 numéros valides, 3 SMS estimés — la fusion Mathématiques+Physique du même étudiant en un seul message composite fonctionne).
+4. "Préparer la campagne" → nouvelle campagne consolidée créée avec exactement 3 destinataires (un par étudiant, pas un par ligne CSV).
+5. Lancement en dry-run + polling réel du endpoint HTTP → progression 0→3, statut bascule bien jusqu'à `COMPLETED` (après correction du bug ci-dessus).
+6. Toutes les données de test (campagnes 9, 10, 11 et leurs destinataires factices) supprimées après validation, avec ton accord — `contacts` (3296), `groupes` (1), `groupe_contacts` (3296) intacts et vérifiés après coup.
+
+**Non fait à ce stade** : protection CSRF sur ces nouveaux formulaires (le reste de l'app n'en a pas non plus — reste une dette de sécurité globale, cf. audit §5.3) ; le worker AJAX dépend d'un onglet navigateur ouvert (le worker CLI `bin/process-campaign.php` est l'alternative robuste déjà livrée en Phase 6) ; le chemin d'échec réel (appel Orange qui échoue vraiment) n'a pas été testé contre l'API réelle pour éviter tout risque financier étant donné le contrat expiré déjà signalé — la logique de classification d'erreurs a été relue mais pas exercée en conditions réelles.
+
+**Résultat** : la fonctionnalité n°1 du cahier des charges (envoi des résultats académiques par SMS) est maintenant un vrai flux de bout en bout — import, consolidation par étudiant, aperçu chiffré avant envoi, file d'attente par lots, suivi en temps réel, rapport final, réessai des échecs — au lieu de l'ancien clic manuel "un SMS à la fois" par étudiant.
+
+*Prochaine étape suggérée : Phase 9/10 (tableau de bord avec graphiques réels, identité visuelle propre) ou Phase 37 (authentification — la table `utilisateurs` est prête depuis la Phase 1) selon la priorité que tu souhaites donner.*
+
+## Phase 37/38 — Authentification et rôles (terminée le 2026-09-08)
+
+**Objectif** : combler la faille de sécurité la plus grave identifiée en Phase 1 (§5.2) — l'application était accessible sans aucune authentification, donc n'importe qui avec l'URL pouvait envoyer des SMS payants ou importer des données.
+
+**Fichiers créés :**
+- `src/Services/AuthService.php` — authentification par session sur la table `utilisateurs` déjà présente en base (créée à l'origine, jamais utilisée) : `attempt()` (vérifie `password_verify`, régénère l'ID de session contre la fixation de session), `logout()`, `check()`, `user()`, `hasRole()`, `requireLogin()`.
+- `config/auth.php` — expose `auth()`.
+- `app/login.php` / `app/logout.php` — page de connexion (formulaire simple, pas de dépendance au thème générique) et déconnexion.
+- `bin/create-user.php` — provisionnement des comptes en ligne de commande. **Aucune inscription publique n'a été exposée, volontairement** : c'est un outil interne qui envoie des SMS payants, pas un SaaS grand public — les comptes `pages/login-v1.html`/`register-v1.html` (jamais connectés, cf. audit §1) restent inertes et seront traités en phase de nettoyage.
+
+**Fichiers modifiés :**
+- `app/index.php` — `auth()->requireLogin('login.php')` avant tout rendu ; le menu utilisateur affiche désormais le vrai nom/rôle connecté et un lien de déconnexion fonctionnel, au lieu du menu factice du template ("Download", "Add account", liens vers `codedthemes.com`).
+- `server/app.php` — protégé par `requireLogin()` **et** un contrôle de rôle : seuls `SUPER_ADMIN`/`ADMIN`/`OPERATOR` peuvent déclencher les actions de ce fichier (il ne fait que des mutations : création, import, envoi) ; un `VIEWER` reçoit un 403.
+- `server/campaign_worker.php` — protégé par `auth()->check()` (401 JSON si non connecté) — sans ça, n'importe qui connaissant un `campagne_id` aurait pu déclencher l'envoi réel des lots depuis l'extérieur.
+
+**Rôles** (`AuthService::ROLES`) : `SUPER_ADMIN`, `ADMIN`, `OPERATOR`, `VIEWER`, conformes au §38. Le contrôle est appliqué au niveau fichier pour `server/app.php` (toutes les mutations) — un contrôle plus fin par action (ex. seul `ADMIN`+ peut annuler une campagne, `OPERATOR` peut seulement lancer/importer) reste à affiner si le besoin se précise ; documenté ici comme limite connue plutôt que fait silencieusement.
+
+**Tests réalisés (vraies requêtes HTTP, serveur réel)** :
+1. Accès non authentifié à `app/index.php`, `server/app.php` (POST) et `server/campaign_worker.php` → redirigés/bloqués (302 vers login, 401 JSON) comme attendu.
+2. Mauvais mot de passe → message d'erreur affiché, pas de session créée.
+3. Bon mot de passe → session créée, accès au dashboard, nom/rôle réels affichés dans l'en-tête, zéro warning PHP.
+4. Déconnexion → session détruite, accès de nouveau bloqué.
+5. Compte `VIEWER` → bloqué avec un 403 explicite sur une tentative d'envoi de SMS, confirmant que le contrôle de rôle fonctionne et pas seulement le contrôle de connexion.
+
+**Compte créé pour toi, à changer** : `admin@test.local` / `TempPass1234` (rôle `SUPER_ADMIN`) — c'est un compte de test que tu as demandé pour valider le flux immédiatement. **Change cet email/mot de passe dès que possible** avec :
+```
+php bin/create-user.php "Ton Nom" tonemail@example.com "UnMotDePasseFort" SUPER_ADMIN
+```
+puis supprime `admin@test.local` (`DELETE FROM utilisateurs WHERE email = 'admin@test.local'`) une fois ton vrai compte créé.
+
+**Non fait à ce stade** : pas de "mot de passe oublié", pas de verrouillage après tentatives échouées répétées (brute-force), pas de CSRF token sur le formulaire de login lui-même (moins critique qu'ailleurs car pas de session préalable à détourner) — dette de sécurité mineure documentée plutôt que résolue silencieusement.
+
+**Résultat** : l'application n'est plus accessible sans identifiants ; les actions d'envoi/import sont réservées aux rôles habilités ; le compte de test permet de se connecter dès maintenant.
+
+*Prochaine étape : Phase 9/10 (tableau de bord + graphiques réels) ou nettoyage des scripts obsolètes — poursuite autonome comme demandé.*
+
+## Phase 11/12 — Tableau de bord et graphiques réels (terminée le 2026-09-08)
+
+**Objectif** : éliminer les données factices affichées comme réelles, identifiées en Phase 1 (§8) — les KPI "SMS Livré" (1641), "SMS non livré" (562), "Taux de réussite" (562, qui était même en unités de SMS et pas un pourcentage) étaient des constantes codées en dur dans `dashboard.php`, et la liste "Listes des campagnes" affichait une ligne e-commerce factice ("Jacqueline Howell / PNG002156").
+
+**Fichiers modifiés :**
+- `server/config.php` — 3 nouvelles fonctions : `getGlobalSmsStats()` (comptage réel envoyés/échecs/en attente + taux de réussite calculé, à partir de `messages`), `getSmsEvolution($days)` (série temporelle des envois réussis par jour, jours manquants comblés à 0 pour un graphique continu), `getCampaignPerformance($limit)` (réussis/échecs des dernières campagnes).
+- `app/index.php` — les 3 cartes KPI (hors "SMS envoyé" qui vient déjà réellement de l'API Orange depuis la Phase 4) utilisent maintenant `getGlobalSmsStats()` au lieu de constantes.
+- `app/templete/dashboard.php` — réécrit : 3 vrais graphiques **ApexCharts** (déjà chargé par le thème, aucune nouvelle dépendance CDN ajoutée) — évolution des envois (line chart, §12), répartition envoyés/échecs/en attente (donut, §12), performance des dernières campagnes (bar chart, §12) — plus une vraie liste des campagnes récentes (au lieu de la ligne factice) et l'envoi rapide conservé.
+
+**Tests réalisés** :
+1. Rendu à vide (base sans aucun message/campagne, état réel actuel) → 0/0/0%, graphiques affichés sans erreur JS ni warning PHP (état vide correctement géré, §41).
+2. **Avec ton accord**, injection de données de test réalistes (1 campagne, 17 envoyés + 3 échecs répartis sur 10 jours) → KPI corrects (17/3/85%), série temporelle de 14 jours cohérente (somme = 17, jours sans envoi à 0), graphique de performance avec les bonnes valeurs. Toutes les données de test supprimées après vérification.
+
+**Résultat** : le dashboard reflète maintenant l'activité réelle de l'application (et non plus un template de démonstration e-commerce) ; le jour où de vraies campagnes seront lancées, ces graphiques se rempliront automatiquement sans autre changement de code.
+
+*Prochaine étape : nettoyage des scripts obsolètes identifiés en Phase 1 (§4).*
+
+## Phase 13 — Nettoyage (terminée le 2026-09-08)
+
+**Objectif** : traiter la liste des fichiers `OBSOLETE`/`DUPLICATE` identifiée en Phase 1 (§4), une fois leur logique utile absorbée par le nouveau moteur (§65-§66).
+
+**Vérification avant tout déplacement** : `grep` sur `app/` et `server/` pour chaque fichier candidat, confirmant qu'aucune vue ni script actif ne le référence encore.
+
+**Fichiers archivés** (déplacés vers `archive/` avec `git mv`, historique git préservé — rien supprimé, voir `archive/README.md`) :
+`server/credit.php`, `server/viaCsv.php`, `server/lot.php`, `server/send.php`, `server/index.php`, `server/index.html`, `app/templete/campagne-list.php`, `pages/login-v1.html`, `pages/register-v1.html`.
+
+**Décision prise pendant cette phase** : `server/send_sms.php` (corrigé en Phase 4, encore actif à l'époque) n'était plus référencé par aucune vue depuis que `app/templete/campagne.php` a été mis à jour en Phase 7/8 (le mini-formulaire qui pointait dessus a été retiré) — confirmé par grep, puis archivé également. Sa logique (boucle par lots avec pause, journalisation) est désormais entièrement portée par `CampaignQueueService`.
+
+**Bug supplémentaire trouvé et corrigé pendant le balayage complet des pages** : `app/templete/sms-sender.php` avait le même bug que `detail-campagne.php` avant sa réécriture — un modal "Envoyer un message au groupe" référençant une variable `$group` jamais définie (`Undefined variable $group`), donc non fonctionnel à l'exécution. Corrigé : le sélecteur de groupe est maintenant alimenté par les vrais groupes (`getGroupes()`), et le bouton crée + lance une vraie campagne via `campaignQueue()` (nouveau handler `send_to_group` dans `server/app.php`) au lieu de router vers le handler `single-sender` (qui attend un numéro, pas un groupe, et aurait simplement échoué silencieusement). La fausse liste "Jacqueline Howell" de cette page a aussi été remplacée par la vraie liste de groupes.
+
+**Trouvé en passant** : `server/test.csv`, un fichier de test contenant un **vrai numéro de téléphone guinéen et un message réel** (mentionnant un concurrent, nimbasms.com), non référencé par aucun code, oublié dans le dépôt. Archivé également — à garder à l'esprit pour l'hygiène des données (§63 : ne pas laisser traîner de données personnelles dans le code versionné).
+
+**Tests réalisés** :
+1. `php -l` sur l'intégralité des fichiers actifs (`app/`, `server/`, `config/`, `src/`, `bin/`, `database/`) après déplacement → aucune erreur.
+2. Toutes les routes de l'application (`dashdoards`, `Groupes`, `campgagne`, `Contacts`, `notes`, `sms-sender`, `rapports`) chargées via un vrai serveur HTTP, en étant connecté → 200 partout, **zéro warning PHP** sur toutes les pages (avant cette phase, `sms-sender.php` en avait 4).
+3. `send_to_group` **volontairement pas exercé en conditions réelles** : le seul groupe existant contient les 3296 vrais contacts — lancer un envoi réel de test aurait créé une campagne ciblant la totalité du carnet d'adresses. Le code réutilise exactement les mêmes fonctions (`createCampaign`, `addRecipients`, `queueCampaign`) déjà validées de bout en bout en Phase 6/7 sur des campagnes de test ; revu par relecture plutôt qu'exécuté ici par prudence.
+
+**`page=rapports`** reste une page blanche (le lien existe dans le menu mais `app/index.php` n'a toujours pas de `require_once` correspondant) — non traité dans cette phase, car construire un vrai module de rapports (§44) est un chantier à part entière, pas un nettoyage ; le lien du menu pourrait être retiré en attendant si tu préfères ne pas laisser une page vide accessible.
+
+**Résultat** : 10 fichiers obsolètes ou cassés retirés du chemin actif (archivés, pas perdus), un bug fonctionnel supplémentaire corrigé, toutes les pages de l'application repassées en revue une à une sans erreur.
+
+## Phase 36 (partielle) — Protection CSRF (terminée le 2026-09-08)
+
+**Objectif** : combler la faille §5.3 de l'audit — aucun des 15 formulaires POST de l'application n'avait de jeton CSRF, donc n'importe quelle page externe aurait pu forcer un admin connecté à créer un groupe, importer des contacts, envoyer un SMS ou annuler une campagne à son insu.
+
+**Fichiers créés** : `config/csrf.php` — `csrf_token()` (génère/réutilise un jeton en session), `csrf_field()` (input caché à insérer dans chaque formulaire), `csrf_verify()` (comparaison `hash_equals`, résistante au timing attack).
+
+**Fichiers modifiés** :
+- `config/services.php` — charge `config/csrf.php`.
+- `server/app.php` — vérifie `csrf_verify()` sur toute requête POST (juste après le contrôle de rôle), rejette avec un code `419` explicite sinon.
+- Les 15 formulaires POST vers `server/app.php`, répartis dans `dashboard.php`, `groupe.php`, `detail-groupe.php`, `campagne.php`, `detail-campagne.php` (×6), `sendMarksheets.php` (×2), `sms-sender.php` (×2) — chacun reçoit désormais `<?= csrf_field() ?>`.
+- **Corrigé au passage** : les 20 occurrences de `header("Location: " . $_SERVER['HTTP_REFERER'])` (audit §5.6 : warning PHP si l'en-tête est absent, et open-redirect possible si un `Referer` externe était forgé) remplacées par une nouvelle fonction `redirectBack()` dans `server/config.php`, qui vérifie que le `Referer` pointe bien vers le même hôte avant de l'utiliser, avec un repli sûr vers `app/index.php` sinon.
+
+**Tests réalisés (vraies requêtes HTTP)** :
+1. POST sans jeton `_csrf` → `419` explicite, requête bloquée.
+2. Récupération du vrai jeton depuis une page réellement rendue, POST avec ce jeton → passe (redirection normale, pas de 419).
+3. POST valide sans en-tête `Referer` (cas réel : certains navigateurs/proxys le suppriment) → plus de warning PHP, redirection vers le repli.
+4. POST avec un `Referer` forgé vers un domaine externe (`evil.example.com`) → redirection forcée vers `app/index.php`, jamais vers le domaine externe.
+5. Toutes les pages de l'application rechargées une dernière fois → toujours zéro warning.
+
+**Non fait** : jeton CSRF sur le formulaire de login lui-même (risque moindre : pas de session à détourner avant authentification) ; rotation du jeton après usage (actuellement un seul jeton par session, valable pour toute sa durée — suffisant contre le CSRF classique mais pas contre un jeton qui fuiterait par ailleurs).
+
+**Résultat** : les 15 formulaires de mutation de l'application sont protégés contre les soumissions forgées depuis un site tiers, et le mécanisme de redirection est à la fois plus robuste (pas de warning) et plus sûr (pas d'open-redirect).
+
+*Bilan à ce stade : audit ✅, sécurité/config ✅, moteur de campagnes ✅, interface + résultats académiques ✅, authentification/rôles ✅, dashboard/graphiques ✅, nettoyage ✅, CSRF ✅. Le cœur fonctionnel et sécuritaire du cahier des charges est couvert. Restent, par ordre d'impact décroissant : documentation (README/ARCHITECTURE/DEPLOYMENT), module Rapports (page actuellement vide), tests automatisés (PHPUnit), et les items de polish (design system propre, accessibilité, health check, tests de charge 10k+).*
+
+## Phase 77 — Documentation (terminée le 2026-09-08)
+
+Créé à la racine : `README.md` (vue d'ensemble, démarrage rapide, commandes), `ARCHITECTURE.md` (arborescence, principe du moteur de campagnes, ce qui n'a volontairement pas changé), `DATABASE.md` (schéma complet table par table, migrations), `ORANGE_API.md` (intégration, cache de token, **rappel du contrat expiré**, classification d'erreurs), `SECURITY.md` (auth, rôles, CSRF, secrets, limites connues), `DEPLOYMENT.md` (installation, worker en production via cron/Planificateur de tâches, sauvegarde, health check à construire). Chaque document renvoie vers `AUDIT.md` pour le détail historique phase par phase.
+
+## Phase 44 — Module Rapports (terminée le 2026-09-08)
+
+**Objectif** : `?page=rapports` était un lien de menu sans handler dans `app/index.php` — page blanche depuis toujours (audit §4).
+
+**Fichiers créés** : `app/templete/rapports.php` — KPI globaux réels, tableau "SMS par campagne" (destinataires/réussis/échecs/taux par campagne, export CSV côté client), tableau "Top erreurs" (comptage par `error_code`).
+**Fichiers modifiés** : `server/config.php` (`getCampaignsReport()`, `getTopErrors()`) ; `app/index.php` (route `rapports` ajoutée, **et le fallback `404.php` référencé depuis l'origine mais jamais créé** — tout accès sans `?page=` valide provoquait une erreur fatale `require_once` avant cette phase) ; `app/templete/404.php` créé ; `server/infosAPI.php` — un warning "Undefined array key page" supplémentaire trouvé et corrigé en testant l'accès sans paramètre.
+
+**Tests réalisés** : page rapports chargée avec la base actuellement vide → états vides corrects ("Aucune campagne...", "Aucune erreur...") ; accès à `?page=nimportequoi` → page 404 propre au lieu d'un fatal error ; accès à `app/index.php` sans aucun paramètre → 200 propre, plus aucun warning.
+
+**Résultat** : plus aucun lien mort dans l'application ; le module Rapports s'alimentera automatiquement dès les premières vraies campagnes.
+
+*Bilan de cette session : 10 phases du cahier des charges traitées et testées de bout en bout (audit, sécurité/config, moteur de campagnes, interface + résultats académiques, authentification/rôles, dashboard/graphiques, nettoyage, CSRF, documentation, rapports). Suite ci-dessous : tests automatisés, health check, identité visuelle, accessibilité, tests de charge.*
+
+---
+
+# JOURNAL — SESSION 2 (suite, 2026-09-08)
+
+## ⚠️ Incident constaté en début de session (résolu, sans perte de données)
+
+En reprenant le travail, l'audit de routine a montré `contacts` et `groupes` à **0 lignes** (3296 et 1 précédemment), avec `groupe_contacts` (3296 lignes) devenu orphelin et `messages_id_seq` à une valeur très élevée (291302) suggérant une activité importante entre les deux sessions. Aucune action de cette session (ni de la précédente) n'a touché ces deux tables — vérifié en retraçant chaque `DELETE` effectué, tous scopés à des `campagne_id`/`messages` de test. **Confirmé par l'utilisateur : suppression volontaire de sa part**, aucune perte accidentelle. `groupe_contacts` reste avec 3296 lignes orphelines — non nettoyé, à faire sur demande uniquement.
+
+## Phase 59 — Tests automatisés PHPUnit (terminée)
+
+**Objectif** : le cahier des charges §59 demande explicitement des tests pour la normalisation téléphone, le calcul SMS, la création de campagne, la sélection des destinataires, le retry, l'erreur API, l'idempotence, la progression, l'annulation, la pause/reprise — rien n'existait.
+
+**Refactor préalable** : la classification d'erreurs (`INVALID_PHONE`/`AUTH_ERROR`/.../retryable ou non) vivait en méthode privée de `CampaignQueueService`, impossible à tester sans base de données. Extraite en classe pure `src/Services/SmsErrorClassifier.php` (aucun changement de comportement, juste déplacée), rendant §8/§9 testables sans DB ni API.
+
+**Fichiers créés** :
+- `phpunit.xml`, `tests/bootstrap.php` (charge l'app + démarre la session **avant** toute sortie console, sinon `session_start()`/`session_regenerate_id()` échouent en CLI une fois que PHPUnit a déjà imprimé des caractères — corrigé via `ob_start()`)
+- `tests/Unit/PhoneNumberServiceTest.php` — 8 cas (formats valides/invalides, §10)
+- `tests/Unit/SmsErrorClassifierTest.php` — 9 cas couvrant les 7 catégories d'erreur et leur retryabilité (§8-§9)
+- `tests/Unit/AuthServiceTest.php` — PDO mocké (aucune vraie base), couvre échec/succès de connexion, hasRole, logout
+- `tests/Integration/CampaignQueueServiceTest.php` — **contre la vraie base `apiSms`**, en dry-run, marqueur `type='phpunit_test'` nettoyé en `tearDown()` : création de campagne, idempotence, verrouillage de lot (aucun destinataire réclamé deux fois), **régression du bug de la Phase 7/8** (campagne finie en un seul lot doit passer à `COMPLETED`), pause/reprise/annulation, retry sélectif par code d'erreur.
+
+**Composer** : ajout de `phpunit/phpunit` (dev), autoload-dev `Tests\\` → `tests/`.
+
+**Résultat des tests, exécutés réellement** :
+- Suite unitaire : `OK (31 tests, 60 assertions)`, aucune base de données touchée.
+- Suite d'intégration (avec ton accord) : `OK (6 tests, 19 assertions)`, données de test nettoyées et vérifiées après coup (0 campagne `phpunit_test` restante).
+
+**Bug de process trouvé pendant l'installation** : `composer require --dev` interrompu (timeout) a laissé une dépendance transitive (`sebastian/comparator`) manquante — corrigé par un `composer install` complet.
+
+## Phase 47 — Health check (terminée)
+
+**Fichier créé** : `app/health.php` — 6 vérifications (Système/PHP, Base de données, API Orange, Fichiers/storage, Configuration/.env, File d'attente bloquée), chacune `OPERATIONAL`/`WARNING`/`ERROR`, avec sortie JSON (`?format=json`, code HTTP 503 si `ERROR`) pour une supervision externe. Lien ajouté au menu principal.
+
+**Bug réel trouvé en le testant** : `storage/logs/` n'existait pas (seul `storage/cache/` avait été créé en Phase 4) — le check "Fichiers" le signalait `ERROR`. Corrigé (dossier créé).
+
+**Test réalisé** : page chargée en HTML et JSON via serveur réel connecté → statut global `WARNING` correctement remonté (contrat Orange expiré + `APP_DEBUG=true`), 0 warning PHP.
+
+## Phase 67 — Identité visuelle (terminée)
+
+**Objectif** : le thème restait le template de démo générique "Gradient Able" (§8 de l'audit initial : logo générique, lien "Buy now" vers developer.orange.com, footer "crafted by Codedthemes", carte publicitaire "Upgrade to Pro", couleur bleue par défaut).
+
+**Changements** :
+- `data-pc-preset` passé de `preset-1` (bleu) à `preset-6` (orange, palette complète déjà définie dans le thème — boutons, alertes, badges, pagination, etc. tous cohérents, pas de reskin partiel risqué) sur `app/index.php` et `index.html`.
+- **Bug de spécificité CSS trouvé en vérifiant visuellement (capture d'écran réelle, pas seulement le code)** : le dégradé du bandeau supérieur n'est PAS piloté par le système de preset mais par `[data-pc-header=header-1]`, une règle définie sur `<body>` — un override sur `:root` était donc silencieusement ignoré par héritage (une propriété déclarée sur un ancêtre proche masque toujours celle d'un ancêtre plus lointain, indépendamment de la spécificité du sélecteur). Corrigé dans `assets/css/sms-orange-overrides.css` avec `body[data-pc-header=header-1]` (spécificité strictement supérieure, gagne quel que soit l'ordre de chargement).
+- Logo générique remplacé par une marque texte "SMS_ORANGE" (aucune image de logo réelle fournie, mieux vaut du texte honnête qu'un logo générique) dans le sidebar et le header, avec le lien cassé `../dashboard/index.html` corrigé vers `index.php?page=dashdoards`.
+- Carte publicitaire "Upgrade to Pro" supprimée, footer remplacé ("SMS_ORANGE — UGLC-SC" + lien vers le health check), meta description/author/keywords génériques remplacées.
+- Page d'accueil (`index.html`) : lien "Se connecter" qui pointait vers `./dashboard/index.html` (page inexistante, **bug réel, lien mort**) corrigé vers `app/login.php`.
+- Bouton "Se connecter" de `app/login.php` (resté bleu Bootstrap par défaut, cette page ne charge pas le thème) recoloré en orange par cohérence.
+
+**Tests réalisés** : capture d'écran réelle (Playwright) des pages login/dashboard/groupes/health après connexion — c'est cette vérification visuelle qui a révélé le bug de spécificité CSS ci-dessus (le code semblait correct, `getComputedStyle` sur `:root` confirmait la bonne valeur, mais le rendu réel restait bleu ; la cause n'est apparue qu'en énumérant toutes les règles CSS correspondant à `.pc-header` sur toutes les feuilles de style). Après correction, capture de contrôle confirmant le dégradé orange sur le bandeau, cohérent avec la page de connexion.
+
+**Non fait** : pas de logo image réel (aucun asset fourni), pas de reskin de la page d'accueil au-delà du lien cassé, boutons d'export DataTables (CSV/Excel/PDF/Imprimer) gardent leurs couleurs par défaut du plugin (hors périmètre du thème).
+
+## Phase 43 (partielle) — Accessibilité (terminée pour les formulaires les plus utilisés)
+
+Corrigé : labels non associés à leur champ (`for`/`id` manquants) sur `app/login.php` (email/mot de passe) et le formulaire d'envoi rapide de `dashboard.php` (ajout de labels `visually-hidden` pour ne pas changer le design compact existant). **Non fait** : passage exhaustif sur tous les formulaires de l'application (une dizaine d'autres vues ont le même style d'input sans label explicite) — corrigé aux endroits les plus visibles/fréquentés, le reste reste une dette documentée plutôt que prétendument réglée.
+
+## Phase 60 — Test de charge à 10 000+ étudiants (terminée)
+
+**Fichier créé** : `bin/load-test.php` — crée une campagne `type='loadtest'`, importe N destinataires synthétiques, lance `EXPLAIN ANALYZE` sur la requête exacte de `claimBatch()`, traite tous les lots en dry-run, mesure temps/mémoire/débit, **supprime systématiquement ses données dans un bloc `finally`** (même en cas d'erreur du script).
+
+**Résultats réels, mesurés avec ton accord contre `apiSms`, 10 000 destinataires, lots de 200** :
+
+| Mesure | Résultat |
+|---|---|
+| Import de 10 000 destinataires | 4,77 s (≈ 2100 insertions/s) |
+| Traitement des 10 000 (dry-run) | 16,33 s en 50 lots (≈ 612 SMS/s simulés) |
+| Stabilité entre le 1er et le 50ᵉ lot | 0,36 s → 0,39 s — **aucune dégradation** avec la taille de la table (confirme que `SKIP LOCKED` + l'index tiennent la charge) |
+| Résultat | 10 000 réussis, 0 échec, statut final `COMPLETED` |
+| Mémoire PHP (pic) | 8 MB seulement |
+| `EXPLAIN ANALYZE` du claim de lot | 0,32 ms d'exécution réelle pour extraire 200 lignes parmi 10 000+ |
+
+**Constat honnête sur l'index** : le planificateur PostgreSQL a choisi un parcours de `messages_pkey` (clé primaire) plutôt que l'index composite `idx_messages_campagne_statut` créé en Phase 6 — probablement des statistiques de table pas encore à jour après l'import massif. Sans impact pratique ici (0,32 ms), mais **recommandation pour la production** : lancer `ANALYZE messages;` après un import massif pour que le planificateur ait des statistiques fraîches, surtout si la table dépasse largement 10 000 lignes en usage réel prolongé.
+
+**Bug de process trouvé (même cause que dans `bin/process-campaign.php` en Phase 6)** : le script requérait `config/services.php` au lieu de `server/config.php`, donc `getSingleCampagne()` était indéfinie — corrigé. Le nettoyage en `finally` a fonctionné correctement malgré le crash (vérifié : 0 ligne restante après coup), preuve que la stratégie « toujours nettoyer, même en cas d'erreur » est robuste.
+
+---
+
+## Bilan global des deux sessions
+
+Toutes les phases prioritaires du cahier des charges ont été traitées, testées avec de vraies requêtes (pas de simulation déclarée sans preuve), et documentées avec leurs limites honnêtes plutôt que passées sous silence :
+
+audit, sécurité/config, moteur de campagnes, interface + résultats académiques, authentification/rôles, dashboard/graphiques, nettoyage, CSRF, documentation, rapports, tests automatisés, health check, identité visuelle, accessibilité (partielle), test de charge 10k+.
+
+**Reste, si une suite est souhaitée** : accessibilité exhaustive sur tous les formulaires, tests de charge à 50 000+/100 000+ pour une marge de sécurité plus large, verrouillage de tentatives de connexion (anti brute-force), un vrai logo, et la mise à niveau `APP_ENV=production`/`APP_DEBUG=false` avant toute mise en ligne réelle (actuellement encore en développement, correctement signalé `WARNING` par `health.php`).
+
+---
+
+## Suppression des modules Contacts/Groupes et Notes (2026-09-08)
+
+**Demande explicite de l'utilisateur** : "éliminer tout ce qui est en lien avec le contact et les notes". Deux clarifications obtenues avant exécution (voir échange) : (1) le module Groupes devait partir aussi, puisqu'il n'existait que pour organiser des contacts ; (2) les vraies données en base devaient être supprimées, pas seulement le code.
+
+**Constat avant suppression** : les tables `contacts` et `groupes` étaient déjà vides (0 ligne chacune) au moment de la demande — seules 3296 lignes orphelines subsistaient dans `groupe_contacts` (sans parent dans `contacts` ni `groupes`). Aucune donnée réelle n'a donc été perdue par cette suppression, contrairement à ce que l'historique de la session précédente aurait pu laisser craindre (3296 contacts réels y avaient été constatés à l'époque).
+
+**Fichiers archivés** (`git mv` vers `archive/`, historique préservé) : `app/templete/contacts.php`, `app/templete/groupe.php`, `app/templete/detail-groupe.php`, `app/templete/sendMarksheets.php`, `server/layout.php` (sa seule fonction, `ListGroupe`, ne servait qu'aux groupes).
+
+**Fichiers modifiés** :
+- `server/app.php` — handlers supprimés : `create_group`, `import_csv` (import CSV de contacts), `add_contact`, `importMessage_csv` (import CSV de résultats bruts matricule/notes/niveau), `prepare_resultats_campagne` (consolidation des résultats en campagne), `send_to_group`.
+- `server/config.php` — fonctions supprimées : `getGroupes`, `getGroupe`, `getContactByGroupe`, `detailGroupe`, `getPhoneContact`, `phoneExiste`, `getMessageSenderMarksheet`, `getSingleStudentSendMarksheet`.
+- `server/infosAPI.php` — `require_once('layout.php')` → `require_once('config.php')` (layout.php archivé).
+- `src/Services/CampaignQueueService.php` — `addRecipients()` ne gère plus `notes`/`niveaux` (colonnes supprimées) ; conserve `matricule`/`nom`/`prenom`, génériques et utilisés par l'import Excel (non concerné par la demande — ce n'est pas le module "notes").
+- `app/index.php` — retrait des entrées de menu "Gestion des Groupes", "Liste des Contacts", "Liste des Notes" et de leurs routes (`Groupes`, `Contacts`, `notes` → 404 propre désormais) ; description meta mise à jour (ne mentionne plus les résultats académiques).
+- `app/templete/sms-sender.php` — retrait du bouton/modal "Envoyer à un groupe" et de la table de groupes (`ListGroupe()`) ; remplacée par une vraie liste des campagnes récentes, cohérente avec le reste de l'app.
+- `app/templete/detail-campagne.php` — retrait du bouton/modal "Importer des résultats bruts (CSV)" (format `telephone,message,matricule,notes,niveau`) ; l'import Excel générique (`nom,prenom,matricule,telephone,message`) est conservé.
+- `app/templete/campagne.php` — aucune référence trouvée, non modifié.
+- Documentation : `DATABASE.md` (tables/colonnes retirées documentées), `ARCHITECTURE.md`, `README.md`, `DEPLOYMENT.md` mis à jour pour ne plus décrire des fonctionnalités qui n'existent plus.
+
+**Migration DB** (`database/migrations/004_remove_contacts_and_notes.sql`, **destructive et intentionnelle, exécutée avec accord explicite**) :
+```sql
+DROP TABLE IF EXISTS groupe_contacts;
+DROP TABLE IF EXISTS contacts CASCADE;  -- CASCADE ne supprime que la contrainte FK
+DROP TABLE IF EXISTS groupes;           -- orpheline sur sms_destinataires (table déjà
+ALTER TABLE messages DROP COLUMN IF EXISTS notes;    -- inutilisée, vide), pas la table elle-même
+ALTER TABLE messages DROP COLUMN IF EXISTS niveaux;
+```
+Premier essai sans `CASCADE` rejeté par PostgreSQL (contrainte `sms_destinataires_contact_id_fkey` dépendante) — corrigé et réexécuté avec succès. `sms_destinataires` (table déjà signalée comme jamais utilisée par le code applicatif depuis la Phase 1) reste en place, juste sans cette contrainte désormais orpheline.
+
+**Tests réalisés** :
+1. `php -l` sur l'intégralité du code actif après suppression → aucune erreur.
+2. Suite PHPUnit complète (unit + integration, contre la vraie base) → 37 tests, 79 assertions, tout au vert.
+3. Balayage HTTP réel de toutes les pages restantes (`dashdoards`, `campgagne`, `sms-sender`, `rapports`) après connexion → 200 partout, zéro warning PHP.
+4. Anciennes routes (`Groupes`, `Contacts`, `notes`) → 404 propre au lieu d'un fatal error ou d'une page cassée.
+5. Cycle complet campagne réelle : création → ajout d'un destinataire (nom/prénom/matricule conservés) → dry-run → vérification du journal affichant correctement Nom/Prénom/Matricule/Destinataire/Statut sans les colonnes supprimées.
+6. Données de test nettoyées après vérification.
+
+---
+
+## Correctif DataTables + page "Historique SMS (Orange)" (2026-09-08)
+
+**Signalement utilisateur** : "les dataTable plante". Diagnostic fait avec un vrai navigateur headless (Playwright), pas seulement par relecture de code — trois bugs JS réels trouvés, invisibles aux tests précédents qui ne vérifiaient que les warnings PHP et le HTML statique, jamais l'exécution JS côté client.
+
+**Bug n°1 (la cause du plantage signalé)** : `app/index.php` chargeait le fichier de traduction française de DataTables depuis `//cdn.datatables.net/plug-ins/1.13.5/i18n/fr-FR.json` en AJAX. Cette requête est bloquée par la politique CORS du navigateur (`Access to XMLHttpRequest ... has been blocked by CORS policy`), ce qui interrompt l'initialisation de DataTables en plein milieu et laisse le tableau dans un état cassé (erreur `Cannot set properties of undefined (setting '_DT_CellIndex')` à la moindre interaction). **Corrigé** : traductions françaises passées en dur dans un objet JS inline (`dataTableFrFR`), plus de dépendance réseau pour l'initialisation. Une garde `if ($('#groupesTable').length)` a aussi été ajoutée pour ne tenter l'initialisation que si le tableau existe réellement sur la page.
+
+**Bug n°2** : `app/templete/dashboard.php` appelait `new ApexCharts(...)` dans un `<script>` inline placé dans le corps de la page, alors que `<script src="...apexcharts.min.js">` est chargé plus bas, dans le pied de page (`app/index.php`) — la bibliothèque n'était donc pas encore définie au moment de l'exécution (`ApexCharts is not defined`), sur la page la plus visitée de l'application. **Corrigé** : le script est désormais enveloppé dans `document.addEventListener('DOMContentLoaded', ...)`, qui garantit que tous les `<script src>` classiques (bloquants, sans `defer`) précédant ce point du document ont déjà été exécutés.
+
+**Bug n°3** : `assets/js/pages/dashboard-sales.js`, chargé sans condition sur **toutes** les pages via `app/index.php`, tentait d'instancier une carte du monde (`jsVectorMap`) sur `#world-map-markers` et un graphique sur `#earnings-users-chart` — deux éléments du tableau de bord de démonstration d'origine ("Gradient Able"), qui n'existent plus nulle part dans l'application actuelle. Résultat : `Cannot read properties of null (reading 'classList')` sur **chaque** page, en boucle infinie potentielle vu le `setTimeout` de rappel. **Corrigé** : ce script (et les bibliothèques `jsvectormap.min.js`/`world.js`/`world-merc.js`/leur CSS, qui ne servaient qu'à lui) retiré de `app/index.php` — code mort de démo jamais utile à cette application.
+
+**Vérification** : script Playwright réutilisable écoutant `console` et `pageerror` sur les 4 pages principales, avant/après. Avant : 2 à 3 erreurs JS par page. Après : **zéro erreur JS sur aucune page**. Capture d'écran de `?page=campgagne` confirmant visuellement le DataTable fonctionnel (recherche, tri des colonnes, pagination et les 4 boutons d'export tous rendus et cliquables, libellés en français correctement affichés). Capture d'écran du dashboard confirmant les 3 graphiques ApexCharts effectivement rendus (SVG présents dans le DOM, pas juste absence d'erreur).
+
+**Nouvelle page : "Historique SMS (Orange)"** (`?page=sms-history`), demandée par l'utilisateur pour "récupérer les SMS envoyés via l'API". **Contrainte réelle découverte en interrogeant la vraie API** (`orangeSms()->getHistory()`) : l'API SMS Orange ne conserve **pas** le détail individuel des SMS envoyés (destinataire, contenu, date d'envoi précise) — `getHistory()` retourne en réalité l'historique des **recharges/achats de forfaits**, et `getStatistics()` ne donne que des compteurs d'usage agrégés par application. Il n'existe aucun endpoint Orange pour lister les SMS un par un après envoi. Plutôt que de construire une page qui prétendrait afficher quelque chose que l'API ne fournit pas, la page construite affiche honnêtement ce qui est réellement disponible :
+- solde SMS, statut du contrat et date d'expiration en direct (`getBalance()`) ;
+- statistiques d'usage agrégées par service/pays/application (`getStatistics()`) ;
+- historique réel des recharges avec date, offre, prix, mode de paiement et solde résultant (`getHistory()`) ;
+- un encart explicite renvoyant vers le module Rapports / le journal de campagne (déjà existants) pour le détail par SMS envoyé — cette donnée-là vient de notre propre base, pas de l'API Orange, et existe déjà.
+
+**Fichiers créés** : `app/templete/sms-history.php`. **Fichiers modifiés** : `app/index.php` (entrée de menu + route `sms-history`, suppression du fichier i18n distant, suppression du script/CSS de démo mort, correctif dashboard.php cité plus haut).
+
+**Testé contre la vraie API Orange** (capture d'écran) : solde 906 (calculé), statut `EXPIRED` correctement remonté et mis en rouge, 209 SMS d'usage agrégé (182+27, cohérent avec le compteur du dashboard), 4 lignes d'historique de recharges réelles avec montants en GNF. Aucune erreur JS ni PHP.
+
+**Résultat** : le plantage des DataTables signalé est corrigé et vérifié en navigateur réel (pas seulement en relecture de code) ; le dashboard n'a plus aucune erreur JS console ; une nouvelle page expose fidèlement les données Orange réellement disponibles, sans fabriquer de fausse liste de SMS envoyés que l'API ne peut pas fournir.
+
+**Résultat** : les modules Contacts, Groupes et Notes/Résultats académiques bruts sont entièrement retirés du chemin actif (code archivé, tables supprimées), sans casser le moteur de campagnes ni l'import Excel générique de destinataires, qui restent la seule voie d'ajout de destinataires — testé de bout en bout après coup.

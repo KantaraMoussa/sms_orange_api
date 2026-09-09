@@ -1,0 +1,17 @@
+/* SMS_ORANGE brand pass — keeps the underlying "Gradient Able" template but
+   swaps the two things the built-in preset system doesn't cover: the top
+   header's gradient (not part of the swappable presets, stays hardcoded
+   blue in the vendor CSS otherwise) and a couple of small identity details.
+   See AUDIT.md / cahier des charges §67. */
+/* Overrides [data-pc-header=header-1] in style-preset.css: that attribute
+   selector lives on <body>, closer in the DOM than :root/<html>, so a :root
+   override alone is silently shadowed by inheritance. Matching the same
+   attribute selector plus the tag name gives strictly higher specificity
+   (0,1,1 > 0,1,0), so this wins regardless of stylesheet load order. */
+body[data-pc-header=header-1] {
+  --pc-header-background: linear-gradient(to right, #ff7900, #ff9e40);
+}
+
+.b-brand {
+  text-decoration: none;
+}
