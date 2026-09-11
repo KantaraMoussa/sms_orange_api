@@ -51,9 +51,29 @@ Table présente depuis l'origine, vide jusqu'à la Phase 37/38 (authentification
 ### `schema_migrations`
 `filename` (PK), `applied_at` — suivi des migrations déjà appliquées par `database/migrate.php`.
 
+### `resultats_academiques`
+Reconstruction structurée du module "résultats académiques" (cahier des charges V2.0, §3-4/§16/§61-64), après la suppression du 2026-09-08 (voir ci-dessous) de l'ancienne version en texte libre.
+
+| Colonne | Type | Note |
+|---|---|---|
+| id | serial PK | |
+| import_id | integer FK → imports_resultats | nullable |
+| matricule, nom, prenom | varchar | |
+| telephone | varchar(20) NOT NULL | format canonique `+224XXXXXXXXX` |
+| telephone_brut | varchar | valeur brute avant normalisation, pour audit |
+| etablissement, session_academique, niveau, classe, programme, semestre | varchar | critères de filtrage (§3) |
+| moyenne, mention, rang, total_classe, credits, appreciation | varchar | valeurs affichées via les variables `{{moyenne}}`/`{{mention}}`/`{{rang}}`/`{{total}}`/`{{credits}}`/`{{appreciation}}` (voir `AcademicResultsService::toTemplateVars()` pour le mapping colonne → variable) |
+| statut | varchar | `actif` par défaut |
+| created_at, updated_at | | |
+
+Un même `(matricule, session_academique, semestre)` est unique (index partiel) : un ré-import du même étudiant pour la même période **met à jour** la ligne existante au lieu d'en créer une deuxième.
+
+### `imports_resultats`
+Rapport de chaque import (§10/§23) : `filename`, `total_lignes`, `valides`, `invalides`, `doublons`, `errors_json` (liste `{ligne, erreur}`, téléchargeable en CSV depuis l'interface), `created_by`, `created_at`.
+
 ## Tables supprimées
 
-Le module Contacts/Groupes (`contacts`, `groupes`, `groupe_contacts`) a été supprimé le 2026-09-08 à la demande explicite de l'utilisateur (migration `004_remove_contacts_and_notes.sql`), de même que les colonnes `notes`/`niveaux` de `messages` (module "résultats académiques"/Notes). Voir `archive/README.md` pour le détail de ce qui a été retiré du code applicatif en parallèle.
+Le module Contacts/Groupes (`contacts`, `groupes`, `groupe_contacts`) a été supprimé le 2026-09-08 à la demande explicite de l'utilisateur (migration `004_remove_contacts_and_notes.sql`), de même que les colonnes `notes`/`niveaux` de `messages` (ancienne version en texte libre du module "résultats académiques"). Voir `archive/README.md` pour le détail de ce qui a été retiré du code applicatif en parallèle, et `resultats_academiques` ci-dessus pour la reconstruction structurée qui l'a remplacé.
 
 ## Migrations
 
@@ -69,5 +89,6 @@ Applique dans l'ordre alphabétique tout fichier `database/migrations/*.sql` non
 | `002_campaign_status_default.sql` | `campagne.statut` défaut `en_attente` → `DRAFT` (additif). |
 | `003_recipient_identity.sql` | Colonnes `nom`/`prenom` sur `messages` pour l'import Excel direct (additif). |
 | `004_remove_contacts_and_notes.sql` | **Destructive, exécutée avec accord explicite** : suppression de `contacts`/`groupes`/`groupe_contacts` et des colonnes `notes`/`niveaux` de `messages`. |
+| `005_academic_results.sql` | Additif : crée `resultats_academiques` et `imports_resultats` (module Résultats académiques V2.0). |
 
-Pour une nouvelle migration : créer `005_....sql` (préfixe numérique croissant), relancer `php database/migrate.php`.
+Pour une nouvelle migration : créer `006_....sql` (préfixe numérique croissant), relancer `php database/migrate.php`.

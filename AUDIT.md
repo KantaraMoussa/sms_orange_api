@@ -551,3 +551,39 @@ Premier essai sans `CASCADE` rejeté par PostgreSQL (contrainte `sms_destinatair
 **Résultat** : le plantage des DataTables signalé est corrigé et vérifié en navigateur réel (pas seulement en relecture de code) ; le dashboard n'a plus aucune erreur JS console ; une nouvelle page expose fidèlement les données Orange réellement disponibles, sans fabriquer de fausse liste de SMS envoyés que l'API ne peut pas fournir.
 
 **Résultat** : les modules Contacts, Groupes et Notes/Résultats académiques bruts sont entièrement retirés du chemin actif (code archivé, tables supprimées), sans casser le moteur de campagnes ni l'import Excel générique de destinataires, qui restent la seule voie d'ajout de destinataires — testé de bout en bout après coup.
+
+---
+
+# JOURNAL — SESSION 3 (2026-09-11) : reconstruction structurée du module "Résultats académiques"
+
+**Contexte** : un nouveau cahier des charges (« SMS_ORANGE V2.0 — envoi des résultats scolaires par SMS ») a été fourni, dont la fonctionnalité n°1 (§3-4, §16, §61-64) est précisément ce qui avait été retiré lors de la session précédente (« Suppression des modules Contacts/Groupes et Notes » ci-dessus, à la demande explicite de l'utilisateur). Plutôt qu'un texte libre saisi via CSV (`matricule/notes/niveaux` dans `messages`), ce cahier des charges décrit un vrai modèle structuré (établissement/session/niveau/classe/programme/semestre/moyenne/mention/rang) — reconstruit ici proprement, en réutilisant entièrement le moteur de campagnes déjà existant (`CampaignQueueService`) plutôt que de dupliquer une logique d'envoi.
+
+**⚠️ Coordination multi-session** : au démarrage de cette session, deux autres sessions Claude Code actives ont été détectées sur le même dépôt (voir échanges inter-sessions). Confirmation obtenue des deux qu'elles étaient inactives/idle avant toute modification, pour éviter d'écraser du travail non commité.
+
+**Fichiers créés** :
+- `database/migrations/005_academic_results.sql` — tables `resultats_academiques` (une ligne par étudiant/session/semestre, upsert par `(matricule, session_academique, semestre)`) et `imports_resultats` (rapport d'import, §10/§23). Additif, aucune table existante modifiée.
+- `src/Services/SmsCounterService.php` — calcul du nombre de SMS avec détection réelle de l'encodage (GSM 7 bits vs UCS-2) et seuils de segmentation corrects (160/153 vs 70/67), pour ne jamais sous-estimer le nombre de SMS facturés (§18/§26).
+- `src/Services/MessageTemplateService.php` — rendu des variables `{{...}}`, utilisé à l'identique pour l'aperçu et l'envoi réel (§17).
+- `src/Services/AcademicResultsService.php` — import Excel/CSV (détection de colonnes par en-tête, alias FR/EN), validation/normalisation (`PhoneNumberService`), rapport d'import détaillé, filtrage par session/niveau/classe/programme/semestre, et `toTemplateVars()` (mapping colonnes DB → variables du cahier des charges).
+- `app/templete/resultats.php` — écran du module : import, historique des imports avec téléchargement des erreurs, sélection par filtres avec compteur en direct, éditeur de modèle avec variables cliquables, aperçu réel + calcul SMS + solde en direct (AJAX), SMS de test, création de la campagne consolidée.
+- `server/resultats_preview.php` — endpoint JSON (lecture seule, même modèle que `campaign_worker.php`) pour la prévisualisation en direct.
+- `server/resultats_export_errors.php` — export CSV des erreurs d'un import (script autonome car un téléchargement de fichier doit envoyer ses en-têtes avant toute sortie HTML, impossible depuis une page déjà incluse dans le shell `app/index.php`).
+- `tests/Unit/SmsCounterServiceTest.php`, `tests/Unit/MessageTemplateServiceTest.php`, `tests/Unit/AcademicResultsServiceMappingTest.php` (9 tests, purs, aucune DB) ; `tests/Integration/AcademicResultsServiceTest.php` (4 tests contre la vraie base `apiSms`, données taguées `PHPUNITRES-`/`phpunit_`, nettoyées en `tearDown()` et vérifiées après coup).
+
+**Fichiers modifiés (additif uniquement, pas de restructuration)** :
+- `config/services.php` — ajout de `academicResults()`.
+- `server/app.php` — 3 nouveaux handlers en fin de fichier : `import_resultats`, `test_sms_resultats`, `create_resultats_campagne` (vérifie le solde Orange avant création, §20/§27, et bloque si insuffisant).
+- `app/index.php` — entrée de menu "Envoyer les résultats" + route `resultats`.
+
+**Bug réel trouvé et corrigé pendant le test du parcours complet en navigateur (Playwright, pas seulement relecture de code)** : le message rendu affichait *"Vos résultats du S4 -  sont disponibles."* — les variables `{{session}}` et `{{total}}` ne se résolvaient jamais, car la table stocke `session_academique`/`total_classe` (noms de colonnes explicites) alors que le message utilise `{{session}}`/`{{total}}` (noms courts du §4/§62). Corrigé en ajoutant `AcademicResultsService::toTemplateVars()`, appliqué aux trois points de rendu (aperçu AJAX, SMS de test, génération de la campagne réelle) ; régression couverte par `AcademicResultsServiceMappingTest`.
+
+**Tests réalisés** :
+1. `php -l` sur tous les fichiers créés/modifiés → aucune erreur (une erreur de syntaxe a été trouvée et corrigée pendant le développement : `$` non échappé dans une chaîne de constante de classe (`SmsCounterService::GSM_BASIC`) — PHP tente d'interpoler `$¥`/`$A`/etc. même dans une expression de constante et rejette avec *"Constant expression contains invalid operations"* ; corrigé en échappant `\$`).
+2. Suite PHPUnit complète (unit + integration) → **60 tests, 122 assertions, tout au vert**, aucune régression sur les 47 tests précédents.
+3. Migration appliquée sur la vraie base `apiSms` (`php database/migrate.php`) → OK.
+4. Parcours complet en navigateur réel (Playwright headless, serveur PHP intégré) : connexion → page Résultats (aucune erreur console/JS) → import d'un CSV réel (3 lignes : 2 valides, 1 téléphone invalide) → rapport d'import correct → sélection de filtres → aperçu mis à jour en direct (compteur, message réel, longueur/encodage/SMS, solde Orange réel affiché) → création de la campagne consolidée (2 destinataires, DRAFT) → vérification du journal de la campagne. **La campagne n'a volontairement pas été lancée** (bouton "Lancer l'envoi" jamais cliqué) pour ne consommer aucun SMS réel pendant le test.
+5. Toutes les données de test (résultats `PWTEST-*`/`PHPUNITRES-*`, imports, campagnes de test) supprimées après vérification.
+
+**Non fait à ce stade** : pas de suppression/désactivation d'un résultat individuel depuis l'interface (seul un ré-import met à jour) ; pas de pagination sur la liste des résultats filtrés côté écran de sélection (le calcul d'aperçu ne charge qu'un seul échantillon, donc pas de problème de performance à 10 000+, mais aucune vue tabulaire des résultats correspondants n'est encore affichée avant la création de la campagne — seulement le compteur et un aperçu sur un étudiant) ; pas d'export du tableau des résultats filtrés (seul l'export des erreurs d'import existe).
+
+**Résultat** : la fonctionnalité n°1 du cahier des charges V2.0 (envoi des résultats académiques par SMS, avec sélection structurée session/niveau/classe/programme/semestre) est reconstruite proprement — données structurées plutôt que texte libre, import avec rapport détaillé et déduplication, aperçu fidèle avant envoi, vérification du solde, et réutilisation complète du moteur de campagnes déjà validé (idempotence, retry, pause/reprise, suivi temps réel) sans dupliquer aucune logique d'envoi.

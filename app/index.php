@@ -71,6 +71,16 @@ require_once('../server/infosAPI.php');
                     </li>
 
                     <li class="pc-item pc-caption">
+                        <label>Résultats académiques</label>
+                        <i class="ph ph-graduation-cap"></i>
+                    </li>
+                    <li class="pc-item"><a href="?page=resultats" class="pc-link">
+                            <span class="pc-micon">
+                                <i class="ph ph-graduation-cap"></i>
+                            </span>
+                            <span class="pc-mtext">Envoyer les résultats</span></a></li>
+
+                    <li class="pc-item pc-caption">
                         <label>Gestion des Messages</label>
                         <i class="ph ph-suitcase"></i>
                     </li>
@@ -79,7 +89,7 @@ require_once('../server/infosAPI.php');
                                 <i class="ph ph-desktop"></i>
                             </span>
                             <span class="pc-mtext">Créer une campagne</span></a></li>
-                   
+
                     <li class="pc-item pc-hasmenu">
                         <a href="?page=sms-sender" class="pc-link"><span class="pc-micon"> <i class="ph ph-tree-structure"></i> </span><span
                                 class="pc-mtext">Liste des Messages</span></a>
@@ -239,6 +249,8 @@ require_once('../server/infosAPI.php');
             if (isset($_GET['page'])) {
                 if ($_GET['page'] == "dashdoards") {
                     require_once('./templete/dashboard.php');
+                } else   if ($_GET['page'] == "resultats") {
+                    require_once('./templete/resultats.php');
                 } else   if ($_GET['page'] == "campgagne") {
                      if (isset($_GET['details'])) {
                         require_once('./templete/detail-campagne.php');

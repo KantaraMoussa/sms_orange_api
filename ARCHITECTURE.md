@@ -31,6 +31,9 @@ src/Services/           Classes avec une responsabilité claire
   CampaignQueueService.php Cœur du moteur de campagnes (voir plus bas)
   PhoneNumberService.php   Normalisation/validation des numéros guinéens
   AuthService.php          Authentification par session + rôles
+  AcademicResultsService.php Import structuré + filtrage des résultats académiques (module V2.0)
+  MessageTemplateService.php Rendu des variables {{...}} — même moteur pour l'aperçu et l'envoi réel
+  SmsCounterService.php      Calcul du nombre de SMS (encodage GSM-7/UCS-2, segments)
 
 bin/                    Scripts CLI
   create-user.php          Provisionne un compte (pas d'inscription publique)
@@ -61,6 +64,23 @@ Campagne (DRAFT) → destinataires importés → QUEUED → lots traités par ca
 - **Verrouillage de lot** : `claimBatch()` utilise `SELECT ... FOR UPDATE SKIP LOCKED` dans une transaction courte (juste le temps de marquer les lignes `en_cours`) — deux workers ne traiteront jamais le même destinataire, et la transaction n'est jamais tenue ouverte pendant l'appel réseau à Orange.
 - **Classification d'erreurs et retry** : `INVALID_PHONE`/`AUTH_ERROR`/`INSUFFICIENT_BALANCE` ne sont jamais réessayés ; `API_ERROR`/`TIMEOUT`/`RATE_LIMIT`/`UNKNOWN_ERROR` le sont, jusqu'à 3 tentatives.
 - **Deux façons de faire avancer une campagne** : `server/campaign_worker.php` (polling AJAX depuis la page de détail, un lot par appel HTTP, ne bloque jamais le navigateur) ou `bin/process-campaign.php` (worker CLI pour une vraie production, via cron/Planificateur de tâches Windows).
+
+## Module "Résultats académiques" (`AcademicResultsService`)
+
+Reconstruction structurée (cahier des charges V2.0 §3-4/§16/§61-64) de la fonctionnalité n°1 du produit, après la suppression du 2026-09-08 de l'ancienne version en texte libre (voir AUDIT.md) :
+
+```
+Import Excel/CSV → validation + normalisation téléphone → resultats_academiques (upsert par matricule+session+semestre)
+                                                          → filtres (session/niveau/classe/programme/semestre)
+                                                          → modèle de message ({{variables}}) → aperçu réel + calcul SMS
+                                                          → vérification du solde Orange
+                                                          → campagne consolidée (CampaignQueueService), une ligne = un étudiant
+```
+
+- **Un seul moteur de rendu** (`MessageTemplateService::render()`) utilisé à la fois pour l'aperçu AJAX (`server/resultats_preview.php`), le SMS de test et l'envoi réel — ce qui est prévisualisé est exactement ce qui part (§17).
+- **Mapping de variables** : la table stocke des noms de colonnes explicites (`session_academique`, `total_classe`) ; `AcademicResultsService::toTemplateVars()` les traduit vers les noms courts du cahier des charges (`{{session}}`, `{{total}}`). Un bug réel de ce type (variable non résolue) a été trouvé en testant le flux complet en navigateur, pas seulement par relecture de code — voir AUDIT.md.
+- **Import idempotent** : `(matricule, session_academique, semestre)` est unique ; un ré-import du même étudiant pour la même période met à jour la ligne au lieu de la dupliquer.
+- **Pas de nouveau moteur d'envoi** : une fois la campagne consolidée créée (`campaignQueue()->createCampaign()` + `addRecipients()`), elle suit exactement le même chemin que n'importe quelle autre campagne (lancement, pause/reprise, retry, suivi temps réel, rapport).
 
 ## Ce qui n'a volontairement pas changé
 

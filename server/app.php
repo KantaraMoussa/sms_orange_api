@@ -182,3 +182,139 @@ if (isset($_POST['retry_campagne_failures'])) {
     header("Location: ../app/index.php?page=campgagne&details=$campagneId");
     exit;
 }
+
+// ------------------------------------------------------------------
+// Résultats académiques (cahier des charges V2.0, §3-4, §16, §61-64) :
+// import structuré (Excel/CSV) puis génération d'une campagne consolidée
+// via le moteur existant (campaignQueue()), une fois le message rendu par
+// MessageTemplateService à partir du modèle + des données de chaque étudiant.
+// ------------------------------------------------------------------
+
+if (isset($_POST['import_resultats']) && isset($_FILES['resultatsFile'])) {
+    $file = $_FILES['resultatsFile'];
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    $maxSize = 15 * 1024 * 1024; // 15 Mo
+
+    if ($file['error'] !== UPLOAD_ERR_OK || !in_array($ext, ['xlsx', 'xls', 'csv'], true) || $file['size'] > $maxSize) {
+        $_SESSION['class'] = "alert alert-danger";
+        $_SESSION['message'] = "❌ Fichier invalide : un .xlsx, .xls ou .csv de moins de 15 Mo est attendu.";
+        redirectBack();
+        exit;
+    }
+
+    try {
+        $report = academicResults()->importFile($file['tmp_name'], $ext, auth()->user()['nom'] ?? null);
+        $_SESSION['class'] = "alert alert-success";
+        $_SESSION['message'] = "✅ Import terminé ({$report['total']} ligne(s) analysée(s)) : {$report['valides']} valide(s), "
+            . "{$report['invalides']} invalide(s), {$report['doublons']} doublon(s)/mise(s) à jour. "
+            . ($report['invalides'] > 0 || $report['doublons'] > 0 ? "Voir le détail dans l'historique d'import ci-dessous." : "");
+    } catch (Exception $e) {
+        $_SESSION['class'] = "alert alert-danger";
+        $_SESSION['message'] = "❌ Échec de l'import : " . $e->getMessage();
+    }
+    header("Location: ../app/index.php?page=resultats");
+    exit;
+}
+
+if (isset($_POST['test_sms_resultats'])) {
+    $numero = trim($_POST['test_number'] ?? '');
+    $template = trim($_POST['message_template'] ?? '');
+    $phone = \App\Services\PhoneNumberService::normalize($numero);
+
+    if ($phone === null || $template === '') {
+        $_SESSION['class'] = "alert alert-danger";
+        $_SESSION['message'] = "❌ Numéro de test invalide ou message vide.";
+        redirectBack();
+        exit;
+    }
+
+    $filters = [
+        'session_academique' => trim($_POST['f_session'] ?? ''),
+        'niveau' => trim($_POST['f_niveau'] ?? ''),
+        'classe' => trim($_POST['f_classe'] ?? ''),
+        'programme' => trim($_POST['f_programme'] ?? ''),
+        'semestre' => trim($_POST['f_semestre'] ?? ''),
+    ];
+    $sample = academicResults()->getSample($filters);
+    $templateVars = $sample !== null ? \App\Services\AcademicResultsService::toTemplateVars($sample) : [];
+    $rendered = \App\Services\MessageTemplateService::render($template, $templateVars);
+
+    try {
+        orangeSms()->sendSms($phone, '[TEST] ' . $rendered['message']);
+        $_SESSION['class'] = "alert alert-success";
+        $_SESSION['message'] = "✅ SMS de test envoyé à {$phone}.";
+    } catch (Exception $e) {
+        $_SESSION['class'] = "alert alert-danger";
+        $_SESSION['message'] = "❌ Échec de l'envoi du test : " . $e->getMessage();
+    }
+    redirectBack();
+    exit;
+}
+
+if (isset($_POST['create_resultats_campagne'])) {
+    $nom = trim($_POST['campagne_name'] ?? '');
+    $template = trim($_POST['message_template'] ?? '');
+    $filters = [
+        'session_academique' => trim($_POST['f_session'] ?? ''),
+        'niveau' => trim($_POST['f_niveau'] ?? ''),
+        'classe' => trim($_POST['f_classe'] ?? ''),
+        'programme' => trim($_POST['f_programme'] ?? ''),
+        'semestre' => trim($_POST['f_semestre'] ?? ''),
+    ];
+
+    if ($nom === '' || $template === '') {
+        $_SESSION['class'] = "alert alert-warning";
+        $_SESSION['message'] = "Le nom de la campagne et le modèle de message sont obligatoires.";
+        redirectBack();
+        exit;
+    }
+
+    $rows = academicResults()->getMatching($filters);
+    if (empty($rows)) {
+        $_SESSION['class'] = "alert alert-warning";
+        $_SESSION['message'] = "Aucun étudiant ne correspond à ces critères.";
+        redirectBack();
+        exit;
+    }
+
+    // Vérification du solde avant création (§20/§27) : bloque si le solde Orange est insuffisant.
+    try {
+        $balance = orangeSms()->getBalance();
+        $available = (int) ($balance['availableUnits'] ?? 0);
+        if ($available > 0 && count($rows) > $available) {
+            $_SESSION['class'] = "alert alert-danger";
+            $_SESSION['message'] = "❌ Solde SMS insuffisant pour cette campagne (" . count($rows) . " nécessaires, {$available} disponibles).";
+            redirectBack();
+            exit;
+        }
+    } catch (Exception $e) {
+        $_SESSION['class'] = "alert alert-warning";
+        $_SESSION['message'] = "⚠️ Solde Orange non vérifiable pour le moment (" . $e->getMessage() . ").";
+    }
+
+    $campagneId = campaignQueue()->createCampaign(
+        $nom,
+        'Résultats académiques — ' . implode(' / ', array_filter($filters)),
+        'resultats',
+        auth()->user()['nom'] ?? null,
+        50
+    );
+
+    $recipients = [];
+    foreach ($rows as $row) {
+        $rendered = \App\Services\MessageTemplateService::render($template, \App\Services\AcademicResultsService::toTemplateVars($row));
+        $recipients[] = [
+            'destinataire' => $row['telephone'],
+            'contenu' => $rendered['message'],
+            'matricule' => $row['matricule'],
+            'nom' => $row['nom'],
+            'prenom' => $row['prenom'],
+        ];
+    }
+    $result = campaignQueue()->addRecipients($campagneId, $recipients);
+
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "✅ Campagne préparée : {$result['added']} destinataire(s) ajouté(s), {$result['duplicates']} déjà en file, {$result['invalid']} numéro(s) invalide(s). Vérifiez le journal puis lancez l'envoi.";
+    header("Location: ../app/index.php?page=campgagne&details=$campagneId");
+    exit;
+}
