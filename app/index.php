@@ -94,6 +94,11 @@ require_once('../server/infosAPI.php');
                         <a href="?page=sms-sender" class="pc-link"><span class="pc-micon"> <i class="ph ph-tree-structure"></i> </span><span
                                 class="pc-mtext">Liste des Messages</span></a>
                     </li>
+                    <li class="pc-item"><a href="?page=modeles" class="pc-link">
+                            <span class="pc-micon">
+                                <i class="ph ph-note-pencil"></i>
+                            </span>
+                            <span class="pc-mtext">Modèles SMS</span></a></li>
                     <li class="pc-item pc-caption">
                         <label>Rapport</label>
                     </li>
@@ -269,6 +274,8 @@ require_once('../server/infosAPI.php');
                     require_once('./templete/sms-history.php');
                 }else   if ($_GET['page'] == "journal") {
                     require_once('./templete/journal.php');
+                }else   if ($_GET['page'] == "modeles") {
+                    require_once('./templete/modeles.php');
                 } else {
                     require_once('./templete/404.php');
                 }

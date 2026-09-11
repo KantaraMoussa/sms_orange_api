@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../config/services.php';
 
 if (auth()->check()) {
-    header('Location: index.php');
+    header('Location: index.php?page=dashdoards');
     exit;
 }
 
@@ -13,7 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($email !== '' && $password !== '' && auth()->attempt($email, $password)) {
         activityLog()->log('connexion', null, auth()->user()['nom'] ?? $email);
-        header('Location: index.php');
+        header('Location: index.php?page=dashdoards');
         exit;
     }
 

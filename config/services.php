@@ -8,6 +8,7 @@ require_once __DIR__ . '/csrf.php';
 use App\Services\CampaignQueueService;
 use App\Services\AcademicResultsService;
 use App\Services\ActivityLogger;
+use App\Services\SmsTemplateService;
 
 function campaignQueue(): CampaignQueueService
 {
@@ -37,6 +38,17 @@ function activityLog(): ActivityLogger
 
     if ($service === null) {
         $service = new ActivityLogger(db());
+    }
+
+    return $service;
+}
+
+function smsTemplates(): SmsTemplateService
+{
+    static $service = null;
+
+    if ($service === null) {
+        $service = new SmsTemplateService(db());
     }
 
     return $service;

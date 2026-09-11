@@ -337,3 +337,83 @@ if (isset($_POST['create_resultats_campagne'])) {
     header("Location: ../app/index.php?page=campgagne&details=$campagneId");
     exit;
 }
+
+// ------------------------------------------------------------------
+// Modèles SMS réutilisables (cahier des charges V2.0, §25) : créer,
+// modifier, dupliquer, archiver. Le rendu des variables reste géré par
+// MessageTemplateService — cette section ne gère que le stockage.
+// ------------------------------------------------------------------
+
+if (isset($_POST['create_template'])) {
+    $nom = trim($_POST['template_nom'] ?? '');
+    $categorie = trim($_POST['template_categorie'] ?? 'notification');
+    $contenu = trim($_POST['template_contenu'] ?? '');
+
+    if ($nom === '' || $contenu === '') {
+        $_SESSION['class'] = "alert alert-warning";
+        $_SESSION['message'] = "Le nom et le contenu du modèle sont obligatoires.";
+        redirectBack();
+        exit;
+    }
+
+    $id = smsTemplates()->create($nom, $categorie, $contenu, $actor);
+    activityLog()->log('creation_modele', null, $actor, $nom);
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "✅ Modèle « $nom » créé.";
+    header("Location: ../app/index.php?page=modeles");
+    exit;
+}
+
+if (isset($_POST['update_template'])) {
+    $id = (int) ($_POST['template_id'] ?? 0);
+    $nom = trim($_POST['template_nom'] ?? '');
+    $categorie = trim($_POST['template_categorie'] ?? 'notification');
+    $contenu = trim($_POST['template_contenu'] ?? '');
+
+    if ($id > 0 && $nom !== '' && $contenu !== '') {
+        smsTemplates()->update($id, $nom, $categorie, $contenu);
+        activityLog()->log('modification_modele', null, $actor, $nom);
+        $_SESSION['class'] = "alert alert-success";
+        $_SESSION['message'] = "✅ Modèle « $nom » mis à jour.";
+    } else {
+        $_SESSION['class'] = "alert alert-warning";
+        $_SESSION['message'] = "Le nom et le contenu du modèle sont obligatoires.";
+    }
+    header("Location: ../app/index.php?page=modeles");
+    exit;
+}
+
+if (isset($_POST['duplicate_template'])) {
+    $id = (int) ($_POST['template_id'] ?? 0);
+    $newId = smsTemplates()->duplicate($id);
+    if ($newId !== null) {
+        activityLog()->log('duplication_modele', null, $actor, "modèle #$id");
+        $_SESSION['class'] = "alert alert-success";
+        $_SESSION['message'] = "✅ Modèle dupliqué.";
+    } else {
+        $_SESSION['class'] = "alert alert-danger";
+        $_SESSION['message'] = "❌ Modèle introuvable.";
+    }
+    header("Location: ../app/index.php?page=modeles");
+    exit;
+}
+
+if (isset($_POST['archive_template'])) {
+    $id = (int) ($_POST['template_id'] ?? 0);
+    smsTemplates()->setArchived($id, true);
+    activityLog()->log('archivage_modele', null, $actor, "modèle #$id");
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "✅ Modèle archivé.";
+    header("Location: ../app/index.php?page=modeles");
+    exit;
+}
+
+if (isset($_POST['unarchive_template'])) {
+    $id = (int) ($_POST['template_id'] ?? 0);
+    smsTemplates()->setArchived($id, false);
+    activityLog()->log('desarchivage_modele', null, $actor, "modèle #$id");
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "✅ Modèle réactivé.";
+    header("Location: ../app/index.php?page=modeles");
+    exit;
+}

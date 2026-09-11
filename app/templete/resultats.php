@@ -3,6 +3,7 @@ $filterOptions = academicResults()->getFilterOptions();
 $importHistory = academicResults()->getImportHistory(5);
 $defaultTemplate = "Bonjour {{prenom}} {{nom}},\n\nVos résultats du {{semestre}} - {{session}} sont disponibles.\n\nMoyenne : {{moyenne}}\nMention : {{mention}}\nRang : {{rang}}/{{total}}\n\nUGLC-SCOLARITE";
 $availableVars = ['nom', 'prenom', 'matricule', 'classe', 'niveau', 'programme', 'semestre', 'session', 'moyenne', 'mention', 'rang', 'total', 'credits', 'appreciation'];
+$savedTemplates = smsTemplates()->all(false);
 ?>
 <div class="row">
     <div class="col-12">
@@ -152,6 +153,19 @@ $availableVars = ['nom', 'prenom', 'matricule', 'classe', 'niveau', 'programme',
                     <input type="hidden" name="f_semestre" id="hidden_f_semestre">
                     <input type="hidden" name="exclude_already_sent" id="hidden_exclude_already_sent" value="">
                     <input type="hidden" name="excluded_ids" id="hidden_excluded_ids" value="">
+
+                    <?php if (!empty($savedTemplates)): ?>
+                    <div class="mb-2">
+                        <label for="saved_template_select" class="form-label">Charger un modèle enregistré</label>
+                        <select class="form-select form-select-sm" id="saved_template_select">
+                            <option value="">— Choisir un modèle —</option>
+                            <?php foreach ($savedTemplates as $t): ?>
+                                <option value="<?= htmlspecialchars($t['contenu']) ?>"><?= htmlspecialchars($t['nom']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">Gérer les modèles depuis <a href="?page=modeles">Modèles SMS</a>.</small>
+                    </div>
+                    <?php endif; ?>
 
                     <div class="mb-2">
                         <label class="form-label">Variables disponibles (cliquer pour insérer)</label><br>
@@ -436,6 +450,16 @@ $availableVars = ['nom', 'prenom', 'matricule', 'classe', 'niveau', 'programme',
             refreshPreview();
         });
     });
+
+    const savedTemplateSelect = document.getElementById('saved_template_select');
+    if (savedTemplateSelect) {
+        savedTemplateSelect.addEventListener('change', function () {
+            if (this.value !== '') {
+                document.getElementById('message_template').value = this.value;
+                refreshPreview();
+            }
+        });
+    }
 
     document.getElementById('resultatsForm').addEventListener('submit', function (e) {
         syncHiddenExclusionFields();

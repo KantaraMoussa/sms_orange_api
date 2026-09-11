@@ -2,6 +2,7 @@
 $evolution = getSmsEvolution(14);
 $globalStats = getGlobalSmsStats();
 $performance = getCampaignPerformance(6);
+$successRateEvolution = getSuccessRateEvolution(14);
 $recentCampagnes = array_slice(getCampagne(), 0, 5);
 ?>
 <div class="row">
@@ -28,13 +29,23 @@ $recentCampagnes = array_slice(getCampagne(), 0, 5);
 </div>
 
 <div class="row">
-    <div class="col-sm-12">
+    <div class="col-sm-7">
         <div class="card">
             <div class="card-header">
                 <h4>Performance des dernières campagnes</h4>
             </div>
             <div class="card-body">
                 <div id="chart-performance"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-5">
+        <div class="card">
+            <div class="card-header">
+                <h4>Évolution du taux de réussite (14 derniers jours)</h4>
+            </div>
+            <div class="card-body">
+                <div id="chart-taux-reussite"></div>
             </div>
         </div>
     </div>
@@ -133,6 +144,18 @@ document.addEventListener('DOMContentLoaded', function () {
         xaxis: { categories: perf.map(p => p.nom) },
         colors: ['#2ca87f', '#e63757'],
         plotOptions: { bar: { horizontal: false, columnWidth: '45%' } },
+        dataLabels: { enabled: false }
+    }).render();
+
+    const successRate = <?= json_encode($successRateEvolution) ?>;
+    new ApexCharts(document.querySelector("#chart-taux-reussite"), {
+        chart: { type: 'line', height: 260, toolbar: { show: false } },
+        series: [{ name: 'Taux de réussite (%)', data: Object.values(successRate) }],
+        xaxis: { categories: Object.keys(successRate) },
+        yaxis: { min: 0, max: 100, labels: { formatter: v => v + '%' } },
+        colors: ['#1e88e5'],
+        stroke: { curve: 'smooth', width: 3 },
+        connectNulls: false,
         dataLabels: { enabled: false }
     }).render();
 });

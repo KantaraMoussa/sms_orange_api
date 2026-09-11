@@ -636,3 +636,32 @@ Premier essai sans `CASCADE` rejeté par PostgreSQL (contrainte `sms_destinatair
 2. Connexion réelle en navigateur (Playwright) → entrée "Connexion" visible immédiatement dans `?page=journal` avec le bon utilisateur et horodatage, zéro erreur console/JS.
 
 **Résultat** : chaque action significative sur une campagne (création, lancement, pause, reprise, annulation, réessai) ainsi que les connexions/déconnexions sont désormais tracées avec qui/quoi/quand, consultables depuis une page dédiée — la dernière lacune structurelle du §64 est comblée sans toucher à la logique métier existante (uniquement des appels de journalisation ajoutés après coup).
+
+## Suite session 3 (2026-09-11) : modèles SMS réutilisables (§25) + 4ᵉ graphique dashboard (§12) + correctif redirection post-connexion
+
+**Objectif** : combler les deux derniers écarts identifiés par rapport au cahier des charges V2.0 — §25 (bibliothèque de modèles SMS avec catégories, CRUD, duplication, archivage) et §12 (4 graphiques attendus sur le dashboard, seulement 3 existaient).
+
+**Fichiers créés** :
+- `database/migrations/008_sms_templates.sql` — table `sms_templates` (additive).
+- `src/Services/SmsTemplateService.php` — `create/update/duplicate/setArchived/all/find`.
+- `app/templete/modeles.php` — page CRUD (tableau, modal créer/modifier, dupliquer, archiver/réactiver).
+- `tests/Integration/SmsTemplateServiceTest.php` — 5 tests contre la vraie base, données taguées `PHPUNITTPL-`, nettoyées en `tearDown()`.
+
+**Fichiers modifiés** :
+- `config/services.php` — ajout de `smsTemplates()`.
+- `server/app.php` — handlers `create_template`/`update_template`/`duplicate_template`/`archive_template`/`unarchive_template`, chacun journalisé via `activityLog()`.
+- `app/index.php` — entrée de menu "Modèles SMS" + route `modeles`.
+- `app/templete/journal.php` — libellés pour les nouvelles actions de modèles.
+- `app/templete/resultats.php` — sélecteur "Charger un modèle enregistré" au-dessus de l'éditeur de message ; sélectionner un modèle remplace le contenu de la zone de texte (même moteur de variables ensuite, aucune duplication de logique de rendu).
+- `server/config.php` — nouvelle fonction `getSuccessRateEvolution($days)` (série temporelle du taux de réussite ; un jour sans SMS traité vaut `null`, pas 0%, pour ne pas laisser croire à un échec total un jour d'inactivité).
+- `app/templete/dashboard.php` — 4ᵉ graphique ApexCharts (évolution du taux de réussite, line chart) à côté du graphique de performance des campagnes.
+
+**Bug réel trouvé en testant le nouveau graphique en navigateur (pas par relecture)** : après connexion, `app/login.php` redirigeait vers `index.php` **sans** `?page=...` — `app/index.php` traite l'absence de paramètre comme une route invalide et affiche la page 404 au lieu du dashboard. Ce bug préexistait (introduit avant cette session) et n'avait jamais été remarqué car les tests précédents naviguaient toujours explicitement vers `?page=dashdoards` après connexion plutôt que de suivre la redirection réelle. Corrigé : les deux redirections de `login.php` (déjà connecté + connexion réussie) pointent maintenant vers `index.php?page=dashdoards`.
+
+**Tests réalisés** :
+1. Suite PHPUnit complète → **75 tests, 156 assertions**, aucune régression.
+2. Parcours navigateur réel (Playwright) : création d'un modèle → apparaît dans le tableau avec le bon aperçu/catégorie → rechargé correctement dans l'éditeur de l'écran Résultats via le sélecteur.
+3. Après correctif de la redirection : les 4 graphiques du dashboard (évolution des envois, répartition, performance des campagnes, taux de réussite) rendent bien 4 `<svg>` distincts, zéro erreur console/JS — **avant** le correctif, aucun des 4 graphiques ne s'affichait après une connexion réelle (page 404 à la place), ce qui n'avait jamais été détecté par les tests précédents qui contournaient systématiquement le flux de redirection réel.
+4. Données de test nettoyées après vérification (`PWTPL*`, entrées de journal associées).
+
+**Résultat** : le dashboard respecte maintenant les 4 graphiques attendus par le §12, un administrateur peut composer un message une fois et le réutiliser (§25), et un bug d'UX critique (dashboard invisible juste après connexion) — présent depuis plusieurs sessions sans être détecté — est corrigé.

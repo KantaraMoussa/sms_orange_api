@@ -136,6 +136,37 @@ function getSmsEvolution(int $days = 14)
     return $series;
 }
 
+/**
+ * Série temporelle du taux de réussite (cahier des charges V2.0 §12,
+ * 4ᵉ graphique du dashboard). Un jour sans aucun SMS traité vaut `null`
+ * (pas 0%) pour ne pas laisser croire à un échec total un jour d'inactivité.
+ */
+function getSuccessRateEvolution(int $days = 14)
+{
+    $sql = "SELECT DATE(date_traitement) AS jour,
+                COUNT(*) FILTER (WHERE statut = 'envoye') AS envoyes,
+                COUNT(*) FILTER (WHERE statut IN ('envoye', 'echec')) AS traites
+            FROM messages
+            WHERE date_traitement >= NOW() - (:days || ' days')::interval
+            GROUP BY DATE(date_traitement)
+            ORDER BY jour";
+    $stmt = PDO()->prepare($sql);
+    $stmt->execute([':days' => $days]);
+    $rows = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $traites = (int) $row['traites'];
+        $rows[$row['jour']] = $traites > 0 ? round(((int) $row['envoyes'] / $traites) * 100, 1) : null;
+    }
+
+    $series = [];
+    for ($i = $days - 1; $i >= 0; $i--) {
+        $day = date('Y-m-d', strtotime("-$i days"));
+        $series[$day] = $rows[$day] ?? null;
+    }
+
+    return $series;
+}
+
 function getCampaignPerformance(int $limit = 6)
 {
     $sql = "SELECT nom, nombre_envoyes, nombre_echecs

@@ -11,6 +11,11 @@ $actionLabels = [
     'annulation_campagne' => 'Annulation',
     'retry_campagne' => 'Réessai des échecs',
     'import_resultats' => 'Import de résultats',
+    'creation_modele' => 'Création de modèle SMS',
+    'modification_modele' => 'Modification de modèle SMS',
+    'duplication_modele' => 'Duplication de modèle SMS',
+    'archivage_modele' => 'Archivage de modèle SMS',
+    'desarchivage_modele' => 'Réactivation de modèle SMS',
 ];
 ?>
 <hr>

@@ -35,6 +35,7 @@ src/Services/           Classes avec une responsabilité claire
   MessageTemplateService.php Rendu des variables {{...}} — même moteur pour l'aperçu et l'envoi réel
   SmsCounterService.php      Calcul du nombre de SMS (encodage GSM-7/UCS-2, segments)
   ActivityLogger.php         Journal d'activité / audit trail (qui a fait quoi, quand)
+  SmsTemplateService.php     Bibliothèque de modèles SMS réutilisables (CRUD, catégories)
 
 bin/                    Scripts CLI
   create-user.php          Provisionne un compte (pas d'inscription publique)

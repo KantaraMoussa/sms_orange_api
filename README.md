@@ -4,10 +4,12 @@ Plateforme d'envoi de campagnes SMS et de messages administratifs, via l'API Ora
 
 ## Fonctionnalités
 
-- **Résultats académiques** : import structuré (Excel/CSV) des résultats d'étudiants (matricule, session, niveau, classe, programme, semestre, moyenne, mention, rang...), rapport d'import détaillé, sélection par filtres, modèle de message avec variables dynamiques, aperçu réel + calcul du nombre de SMS, SMS de test, vérification du solde avant création, génération d'une campagne consolidée.
+- **Résultats académiques** : import structuré (Excel/CSV) des résultats d'étudiants (matricule, session, niveau, classe, programme, semestre, moyenne, mention, rang...), rapport d'import détaillé, tableau d'étudiants sélectionnables (recherche, exclusion individuelle ou des étudiants déjà envoyés), modèle de message avec variables dynamiques, aperçu réel + calcul du nombre de SMS, SMS de test, vérification du solde avant création, génération d'une campagne consolidée.
+- **Modèles SMS** : bibliothèque réutilisable (créer/modifier/dupliquer/archiver), chargeable directement dans l'écran Résultats académiques.
 - **Campagnes** : création, import de destinataires (fichier Excel : nom, prénom, matricule, téléphone, message), lancement en file d'attente par lots, suivi de progression en temps réel, pause/reprise/annulation, réessai des échecs.
-- **Dashboard** : solde SMS Orange en direct, statistiques réelles, graphiques (évolution des envois, répartition, performance des campagnes).
-- **Authentification** : session + rôles (`SUPER_ADMIN`, `ADMIN`, `OPERATOR`, `VIEWER`).
+- **Dashboard** : solde SMS Orange en direct, statistiques réelles, 4 graphiques (évolution des envois, répartition, performance des campagnes, taux de réussite).
+- **Journal d'activité** : qui a créé/lancé/mis en pause/repris/annulé/réessayé une campagne, connexions/déconnexions.
+- **Authentification** : session + rôles (`SUPER_ADMIN`, `ADMIN`, `OPERATOR`, `VIEWER`), verrouillage anti brute-force.
 
 ## Stack
 
