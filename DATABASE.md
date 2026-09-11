@@ -89,6 +89,9 @@ Applique dans l'ordre alphabétique tout fichier `database/migrations/*.sql` non
 | `002_campaign_status_default.sql` | `campagne.statut` défaut `en_attente` → `DRAFT` (additif). |
 | `003_recipient_identity.sql` | Colonnes `nom`/`prenom` sur `messages` pour l'import Excel direct (additif). |
 | `004_remove_contacts_and_notes.sql` | **Destructive, exécutée avec accord explicite** : suppression de `contacts`/`groupes`/`groupe_contacts` et des colonnes `notes`/`niveaux` de `messages`. |
+| `005_login_lockout.sql` | Additif : `failed_attempts`/`locked_until` sur `utilisateurs` (verrouillage anti brute-force). |
 | `005_academic_results.sql` | Additif : crée `resultats_academiques` et `imports_resultats` (module Résultats académiques V2.0). |
+
+> **Note** : les deux migrations ci-dessus portent le même préfixe `005_` — créées en parallèle par deux sessions de travail différentes le même jour. Sans conséquence pratique : `schema_migrations` suit chaque fichier par son nom complet (pas seulement le préfixe), les deux ont été appliquées sans conflit (tables distinctes), et `database/migrate.php` les trie par ordre alphabétique complet. Laissé tel quel plutôt que renommé, pour ne pas risquer de perturber le suivi déjà enregistré sur la base de production.
 
 Pour une nouvelle migration : créer `006_....sql` (préfixe numérique croissant), relancer `php database/migrate.php`.
