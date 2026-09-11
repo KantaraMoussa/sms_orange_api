@@ -106,6 +106,10 @@ require_once('../server/infosAPI.php');
                                 class="pc-mtext">Historique SMS (Orange)</span></a>
                     </li>
                     <li class="pc-item">
+                        <a href="?page=journal" class="pc-link"><span class="pc-micon"> <i class="ph ph-list-checks"></i></span><span
+                                class="pc-mtext">Journal d'activité</span></a>
+                    </li>
+                    <li class="pc-item">
                         <a href="health.php" class="pc-link"><span class="pc-micon"> <i class="ph ph-heartbeat"></i></span><span
                                 class="pc-mtext">État du système</span></a>
                     </li>
@@ -263,6 +267,8 @@ require_once('../server/infosAPI.php');
                     require_once('./templete/rapports.php');
                 }else   if ($_GET['page'] == "sms-history") {
                     require_once('./templete/sms-history.php');
+                }else   if ($_GET['page'] == "journal") {
+                    require_once('./templete/journal.php');
                 } else {
                     require_once('./templete/404.php');
                 }

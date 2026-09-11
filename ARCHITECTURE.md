@@ -34,6 +34,7 @@ src/Services/           Classes avec une responsabilité claire
   AcademicResultsService.php Import structuré + filtrage des résultats académiques (module V2.0)
   MessageTemplateService.php Rendu des variables {{...}} — même moteur pour l'aperçu et l'envoi réel
   SmsCounterService.php      Calcul du nombre de SMS (encodage GSM-7/UCS-2, segments)
+  ActivityLogger.php         Journal d'activité / audit trail (qui a fait quoi, quand)
 
 bin/                    Scripts CLI
   create-user.php          Provisionne un compte (pas d'inscription publique)

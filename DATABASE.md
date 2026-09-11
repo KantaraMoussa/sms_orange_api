@@ -51,6 +51,9 @@ Table présente depuis l'origine, vide jusqu'à la Phase 37/38 (authentification
 ### `schema_migrations`
 `filename` (PK), `applied_at` — suivi des migrations déjà appliquées par `database/migrate.php`.
 
+### `activity_logs`
+Journal d'activité / piste d'audit (§35/§64) : `user_nom`, `action` (connexion/deconnexion/creation_campagne/lancement_campagne/pause_campagne/reprise_campagne/annulation_campagne/retry_campagne/import_resultats/creation_campagne_resultats), `campagne_id` (FK, nullable), `details`, `created_at`. Alimenté par `ActivityLogger`, consulté depuis `?page=journal`.
+
 ### `resultats_academiques`
 Reconstruction structurée du module "résultats académiques" (cahier des charges V2.0, §3-4/§16/§61-64), après la suppression du 2026-09-08 (voir ci-dessous) de l'ancienne version en texte libre.
 
@@ -93,7 +96,8 @@ Applique dans l'ordre alphabétique tout fichier `database/migrations/*.sql` non
 | `005_login_lockout.sql` | Additif : `failed_attempts`/`locked_until` sur `utilisateurs` (verrouillage anti brute-force). |
 | `005_academic_results.sql` | Additif : crée `resultats_academiques` et `imports_resultats` (module Résultats académiques V2.0). |
 | `006_resultats_derniere_campagne.sql` | Additif : `resultats_academiques.derniere_campagne_id` (FK `campagne`), pour le statut "déjà envoyé" (§17). |
+| `007_activity_logs.sql` | Additif : crée `activity_logs` (journal d'activité / audit trail, §35/§64). |
 
 > **Note** : les deux migrations ci-dessus portent le même préfixe `005_` — créées en parallèle par deux sessions de travail différentes le même jour. Sans conséquence pratique : `schema_migrations` suit chaque fichier par son nom complet (pas seulement le préfixe), les deux ont été appliquées sans conflit (tables distinctes), et `database/migrate.php` les trie par ordre alphabétique complet. Laissé tel quel plutôt que renommé, pour ne pas risquer de perturber le suivi déjà enregistré sur la base de production.
 
-Pour une nouvelle migration : créer `007_....sql` (préfixe numérique croissant), relancer `php database/migrate.php`.
+Pour une nouvelle migration : créer `008_....sql` (préfixe numérique croissant), relancer `php database/migrate.php`.

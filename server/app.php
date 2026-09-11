@@ -14,6 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_verify()) {
 }
 $_SESSION['class'] = "";
 $_SESSION['message'] = "";
+$actor = auth()->user()['nom'] ?? null; // pour le journal d'activité (§35/§64)
 
 if (isset($_POST['single-sender'])) {
     $pattern = "/^(\+224|00224)6\d{8}$/";
@@ -54,6 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_campagne'])) {
 
     if (!empty($nom)) {
         $campagneId = campaignQueue()->createCampaign($nom, $description, 'generique', 'admin', 50);
+        activityLog()->log('creation_campagne', $campagneId, $actor, $nom);
         $_SESSION['class'] = "alert alert-success";
         $_SESSION['message'] = "✅ Campagne créée avec succès. Importez maintenant vos destinataires.";
         header("Location: ../app/index.php?page=campgagne&details=$campagneId");
@@ -148,6 +150,7 @@ if (isset($_POST['launch_campagne'])) {
     $campagneId = (int) $_POST['campagne_id'];
     $dryRun = isset($_POST['dry_run']);
     campaignQueue()->queueCampaign($campagneId, $dryRun);
+    activityLog()->log('lancement_campagne', $campagneId, $actor, $dryRun ? 'dry_run' : null);
     header("Location: ../app/index.php?page=campgagne&details=$campagneId");
     exit;
 }
@@ -155,6 +158,7 @@ if (isset($_POST['launch_campagne'])) {
 if (isset($_POST['pause_campagne'])) {
     $campagneId = (int) $_POST['campagne_id'];
     campaignQueue()->pause($campagneId);
+    activityLog()->log('pause_campagne', $campagneId, $actor);
     header("Location: ../app/index.php?page=campgagne&details=$campagneId");
     exit;
 }
@@ -162,6 +166,7 @@ if (isset($_POST['pause_campagne'])) {
 if (isset($_POST['resume_campagne'])) {
     $campagneId = (int) $_POST['campagne_id'];
     campaignQueue()->resume($campagneId);
+    activityLog()->log('reprise_campagne', $campagneId, $actor);
     header("Location: ../app/index.php?page=campgagne&details=$campagneId");
     exit;
 }
@@ -169,6 +174,7 @@ if (isset($_POST['resume_campagne'])) {
 if (isset($_POST['cancel_campagne'])) {
     $campagneId = (int) $_POST['campagne_id'];
     campaignQueue()->cancel($campagneId);
+    activityLog()->log('annulation_campagne', $campagneId, $actor);
     header("Location: ../app/index.php?page=campgagne&details=$campagneId");
     exit;
 }
@@ -177,6 +183,7 @@ if (isset($_POST['retry_campagne_failures'])) {
     $campagneId = (int) $_POST['campagne_id'];
     $n = campaignQueue()->retryFailed($campagneId);
     campaignQueue()->queueCampaign($campagneId);
+    activityLog()->log('retry_campagne', $campagneId, $actor, "$n message(s) remis en file");
     $_SESSION['class'] = "alert alert-success";
     $_SESSION['message'] = "🔁 $n échec(s) remis en file d'attente.";
     header("Location: ../app/index.php?page=campgagne&details=$campagneId");
@@ -203,7 +210,8 @@ if (isset($_POST['import_resultats']) && isset($_FILES['resultatsFile'])) {
     }
 
     try {
-        $report = academicResults()->importFile($file['tmp_name'], $ext, auth()->user()['nom'] ?? null);
+        $report = academicResults()->importFile($file['tmp_name'], $ext, $actor);
+        activityLog()->log('import_resultats', null, $actor, "{$report['valides']} valide(s)/{$report['invalides']} invalide(s)/{$report['doublons']} doublon(s), fichier {$file['name']}");
         $_SESSION['class'] = "alert alert-success";
         $_SESSION['message'] = "✅ Import terminé ({$report['total']} ligne(s) analysée(s)) : {$report['valides']} valide(s), "
             . "{$report['invalides']} invalide(s), {$report['doublons']} doublon(s)/mise(s) à jour. "
@@ -304,7 +312,7 @@ if (isset($_POST['create_resultats_campagne'])) {
         $nom,
         'Résultats académiques — ' . implode(' / ', array_filter($baseFilters)),
         'resultats',
-        auth()->user()['nom'] ?? null,
+        $actor,
         50
     );
 
@@ -322,6 +330,7 @@ if (isset($_POST['create_resultats_campagne'])) {
     $result = campaignQueue()->addRecipients($campagneId, $recipients);
     // Permet de répondre plus tard à "cet étudiant a-t-il déjà reçu ses résultats ?" (§17).
     academicResults()->markCampaignForRows($campagneId, array_column($rows, 'id'));
+    activityLog()->log('creation_campagne_resultats', $campagneId, $actor, count($rows) . ' étudiant(s)');
 
     $_SESSION['class'] = "alert alert-success";
     $_SESSION['message'] = "✅ Campagne préparée : {$result['added']} destinataire(s) ajouté(s), {$result['duplicates']} déjà en file, {$result['invalid']} numéro(s) invalide(s). Vérifiez le journal puis lancez l'envoi.";

@@ -12,6 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password = (string) ($_POST['password'] ?? '');
 
     if ($email !== '' && $password !== '' && auth()->attempt($email, $password)) {
+        activityLog()->log('connexion', null, auth()->user()['nom'] ?? $email);
         header('Location: index.php');
         exit;
     }

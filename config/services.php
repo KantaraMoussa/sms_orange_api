@@ -7,6 +7,7 @@ require_once __DIR__ . '/csrf.php';
 
 use App\Services\CampaignQueueService;
 use App\Services\AcademicResultsService;
+use App\Services\ActivityLogger;
 
 function campaignQueue(): CampaignQueueService
 {
@@ -25,6 +26,17 @@ function academicResults(): AcademicResultsService
 
     if ($service === null) {
         $service = new AcademicResultsService(db());
+    }
+
+    return $service;
+}
+
+function activityLog(): ActivityLogger
+{
+    static $service = null;
+
+    if ($service === null) {
+        $service = new ActivityLogger(db());
     }
 
     return $service;

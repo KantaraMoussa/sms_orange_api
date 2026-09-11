@@ -614,3 +614,25 @@ Premier essai sans `CASCADE` rejeté par PostgreSQL (contrainte `sms_destinatair
 3. Données de test nettoyées après vérification (`BRTEST-*`, campagnes/imports associés).
 
 **Résultat** : l'écran Résultats académiques permet maintenant une sélection fine (voir chaque étudiant, l'exclure individuellement, ou exclure en masse ceux déjà servis) conforme au §16-17, et le solde Orange n'est plus interrogé en réseau à chaque interaction — seulement au maximum une fois toutes les 20 secondes pour l'aperçu, et toujours en direct pour le contrôle bloquant réel.
+
+## Suite session 3 (2026-09-11) : journal d'activité / audit trail (§35/§64)
+
+**Objectif** : le cahier des charges V2.0 demande explicitement (§64) de savoir qui a créé/lancé/annulé/repris/réessayé une campagne, et (§35) de journaliser connexion/import/campagne. Rien de tel n'existait — seul `created_by` sur `campagne` capturait le créateur, sans historique des actions ultérieures ni des connexions.
+
+**Fichiers créés** :
+- `database/migrations/007_activity_logs.sql` — table `activity_logs` (additive).
+- `src/Services/ActivityLogger.php` — `log()`, `recent()`, `forCampaign()`.
+- `app/templete/journal.php` — page "Journal d'activité" (tableau, export CSV client, libellés d'action en français, lien vers la campagne concernée).
+- `tests/Integration/ActivityLoggerTest.php` — 3 tests contre la vraie base, données taguées `phpunit_activity_test`, nettoyées en `tearDown()`.
+
+**Fichiers modifiés (additif uniquement)** :
+- `config/services.php` — ajout de `activityLog()`.
+- `server/app.php` — un appel `activityLog()->log(...)` après chaque mutation réussie : `create_campagne`, `launch_campagne`, `pause_campagne`, `resume_campagne`, `cancel_campagne`, `retry_campagne_failures`, `import_resultats`, `create_resultats_campagne`.
+- `app/login.php` / `app/logout.php` — `connexion`/`deconnexion` journalisées (uniquement en cas de succès réel, pas sur tentative échouée — déjà couvert par le verrouillage anti brute-force de la session précédente).
+- `app/index.php` — entrée de menu "Journal d'activité" + route `journal`.
+
+**Tests réalisés** :
+1. Suite PHPUnit complète → **70 tests, 144 assertions**, aucune régression.
+2. Connexion réelle en navigateur (Playwright) → entrée "Connexion" visible immédiatement dans `?page=journal` avec le bon utilisateur et horodatage, zéro erreur console/JS.
+
+**Résultat** : chaque action significative sur une campagne (création, lancement, pause, reprise, annulation, réessai) ainsi que les connexions/déconnexions sont désormais tracées avec qui/quoi/quand, consultables depuis une page dédiée — la dernière lacune structurelle du §64 est comblée sans toucher à la logique métier existante (uniquement des appels de journalisation ajoutés après coup).
