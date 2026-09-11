@@ -3,6 +3,7 @@
 namespace Tests\Integration;
 
 use App\Services\AcademicResultsService;
+use App\Services\CampaignQueueService;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -12,7 +13,8 @@ use PHPUnit\Framework\TestCase;
  * deleted in tearDown() regardless of test outcome.
  *
  * Covers cahier des charges V2.0 §10/§23 (rapport d'import, doublons),
- * §3-4 (filtrage), §16-17 (rendu réel identique à la prévisualisation).
+ * §3-4 (filtrage), §16-17 (rendu réel identique à la prévisualisation,
+ * recherche, exclusion des étudiants déjà envoyés).
  */
 class AcademicResultsServiceTest extends TestCase
 {
@@ -20,6 +22,8 @@ class AcademicResultsServiceTest extends TestCase
     private AcademicResultsService $service;
     /** @var string[] */
     private array $tmpFiles = [];
+    /** @var int[] */
+    private array $createdCampaignIds = [];
 
     protected function setUp(): void
     {
@@ -29,6 +33,12 @@ class AcademicResultsServiceTest extends TestCase
 
     protected function tearDown(): void
     {
+        $this->pdo->exec("UPDATE resultats_academiques SET derniere_campagne_id = NULL WHERE matricule LIKE 'PHPUNITRES-%'");
+        if (!empty($this->createdCampaignIds)) {
+            $ids = implode(',', array_map('intval', $this->createdCampaignIds));
+            $this->pdo->exec("DELETE FROM messages WHERE campagne_id IN ($ids)");
+            $this->pdo->exec("DELETE FROM campagne WHERE id IN ($ids) AND type = 'phpunit_test'");
+        }
         $this->pdo->exec("DELETE FROM resultats_academiques WHERE matricule LIKE 'PHPUNITRES-%'");
         $this->pdo->exec("DELETE FROM imports_resultats WHERE filename LIKE 'phpunit_%'");
 
@@ -113,5 +123,71 @@ class AcademicResultsServiceTest extends TestCase
 
         $this->assertCount(1, $errors);
         $this->assertStringContainsString('bad-phone', $errors[0]['erreur']);
+    }
+
+    public function testSearchFiltersByNomPrenomOrMatricule(): void
+    {
+        $path = $this->makeCsv([
+            ['PHPUNITRES-7', 'Zoumanigui', 'Kadiatou', '622111114', '2025-2026', 'L1', 'Droit', 'S1', '13.00', 'Bien', '5', '30'],
+            ['PHPUNITRES-8', 'Traore', 'Mamadou', '622111115', '2025-2026', 'L1', 'Droit', 'S1', '12.50', 'Bien', '8', '30'],
+        ]);
+        $this->service->importFile($path, 'csv', 'phpunit');
+
+        $byName = $this->service->getMatching(['search' => 'Zoumanigui']);
+        $byMatricule = $this->service->getMatching(['search' => 'PHPUNITRES-8']);
+
+        $this->assertCount(1, array_filter($byName, fn($r) => $r['matricule'] === 'PHPUNITRES-7'));
+        $this->assertNotContains('PHPUNITRES-8', array_column($byName, 'matricule'));
+        $this->assertContains('PHPUNITRES-8', array_column($byMatricule, 'matricule'));
+    }
+
+    public function testExcludeIdsRemovesSpecificRows(): void
+    {
+        $path = $this->makeCsv([
+            ['PHPUNITRES-9', 'A', 'B', '622111116', '2025-2026', 'L1', 'Droit', 'S1', '10', 'Passable', '1', '2'],
+            ['PHPUNITRES-10', 'C', 'D', '622111117', '2025-2026', 'L1', 'Droit', 'S1', '10', 'Passable', '2', '2'],
+        ]);
+        $this->service->importFile($path, 'csv', 'phpunit');
+
+        $all = $this->service->getMatching(['session_academique' => '2025-2026', 'niveau' => 'L1', 'classe' => '', 'programme' => '', 'semestre' => 'S1', 'search' => 'PHPUNITRES-']);
+        $toExclude = array_values(array_filter($all, fn($r) => $r['matricule'] === 'PHPUNITRES-9'));
+        $this->assertCount(1, $toExclude);
+
+        $filtered = $this->service->getMatching(['search' => 'PHPUNITRES-1', 'exclude_ids' => [$toExclude[0]['id']]]);
+        $this->assertNotContains('PHPUNITRES-9', array_column($filtered, 'matricule'));
+        $this->assertContains('PHPUNITRES-10', array_column($filtered, 'matricule'));
+    }
+
+    public function testMarkCampaignForRowsTracksAlreadySentStatus(): void
+    {
+        $path = $this->makeCsv([
+            ['PHPUNITRES-11', 'Sent', 'Student', '622111118', '2025-2026', 'L1', 'Droit', 'S1', '10', 'Passable', '1', '1'],
+        ]);
+        $this->service->importFile($path, 'csv', 'phpunit');
+
+        $row = $this->service->getMatching(['search' => 'PHPUNITRES-11'])[0];
+        $this->assertFalse($row['deja_envoye'], 'a student never assigned to a campaign must not appear as already sent');
+
+        $queue = new CampaignQueueService($this->pdo, orangeSms());
+        $campaignId = $queue->createCampaign('PHPUnit resultats already-sent', '', 'phpunit_test', 'phpunit', 50);
+        $this->createdCampaignIds[] = $campaignId;
+        $queue->addRecipients($campaignId, [[
+            'destinataire' => $row['telephone'],
+            'contenu' => 'Test',
+            'matricule' => $row['matricule'],
+        ]]);
+        $this->service->markCampaignForRows($campaignId, [$row['id']]);
+
+        // Tant que le message n'est pas réellement "envoye", l'étudiant ne doit pas apparaître comme déjà envoyé.
+        $stillPending = $this->service->getMatching(['search' => 'PHPUNITRES-11'])[0];
+        $this->assertFalse($stillPending['deja_envoye']);
+
+        $this->pdo->prepare("UPDATE messages SET statut = 'envoye' WHERE campagne_id = :id")->execute([':id' => $campaignId]);
+
+        $sent = $this->service->getMatching(['search' => 'PHPUNITRES-11'])[0];
+        $this->assertTrue($sent['deja_envoye']);
+
+        $excluded = $this->service->getMatching(['search' => 'PHPUNITRES-11', 'exclude_already_sent' => true]);
+        $this->assertCount(0, $excluded, 'exclude_already_sent must filter out students whose last campaign succeeded');
     }
 }

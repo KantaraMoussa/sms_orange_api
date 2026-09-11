@@ -64,6 +64,7 @@ Reconstruction structurée du module "résultats académiques" (cahier des charg
 | etablissement, session_academique, niveau, classe, programme, semestre | varchar | critères de filtrage (§3) |
 | moyenne, mention, rang, total_classe, credits, appreciation | varchar | valeurs affichées via les variables `{{moyenne}}`/`{{mention}}`/`{{rang}}`/`{{total}}`/`{{credits}}`/`{{appreciation}}` (voir `AcademicResultsService::toTemplateVars()` pour le mapping colonne → variable) |
 | statut | varchar | `actif` par défaut |
+| derniere_campagne_id | integer FK → campagne | posée par `AcademicResultsService::markCampaignForRows()` à la création d'une campagne ; sert à calculer `deja_envoye` (§17) par jointure sur `messages` |
 | created_at, updated_at | | |
 
 Un même `(matricule, session_academique, semestre)` est unique (index partiel) : un ré-import du même étudiant pour la même période **met à jour** la ligne existante au lieu d'en créer une deuxième.
@@ -91,7 +92,8 @@ Applique dans l'ordre alphabétique tout fichier `database/migrations/*.sql` non
 | `004_remove_contacts_and_notes.sql` | **Destructive, exécutée avec accord explicite** : suppression de `contacts`/`groupes`/`groupe_contacts` et des colonnes `notes`/`niveaux` de `messages`. |
 | `005_login_lockout.sql` | Additif : `failed_attempts`/`locked_until` sur `utilisateurs` (verrouillage anti brute-force). |
 | `005_academic_results.sql` | Additif : crée `resultats_academiques` et `imports_resultats` (module Résultats académiques V2.0). |
+| `006_resultats_derniere_campagne.sql` | Additif : `resultats_academiques.derniere_campagne_id` (FK `campagne`), pour le statut "déjà envoyé" (§17). |
 
 > **Note** : les deux migrations ci-dessus portent le même préfixe `005_` — créées en parallèle par deux sessions de travail différentes le même jour. Sans conséquence pratique : `schema_migrations` suit chaque fichier par son nom complet (pas seulement le préfixe), les deux ont été appliquées sans conflit (tables distinctes), et `database/migrate.php` les trie par ordre alphabétique complet. Laissé tel quel plutôt que renommé, pour ne pas risquer de perturber le suivi déjà enregistré sur la base de production.
 
-Pour une nouvelle migration : créer `006_....sql` (préfixe numérique croissant), relancer `php database/migrate.php`.
+Pour une nouvelle migration : créer `007_....sql` (préfixe numérique croissant), relancer `php database/migrate.php`.

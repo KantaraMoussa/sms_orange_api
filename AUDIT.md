@@ -587,3 +587,30 @@ Premier essai sans `CASCADE` rejeté par PostgreSQL (contrainte `sms_destinatair
 **Non fait à ce stade** : pas de suppression/désactivation d'un résultat individuel depuis l'interface (seul un ré-import met à jour) ; pas de pagination sur la liste des résultats filtrés côté écran de sélection (le calcul d'aperçu ne charge qu'un seul échantillon, donc pas de problème de performance à 10 000+, mais aucune vue tabulaire des résultats correspondants n'est encore affichée avant la création de la campagne — seulement le compteur et un aperçu sur un étudiant) ; pas d'export du tableau des résultats filtrés (seul l'export des erreurs d'import existe).
 
 **Résultat** : la fonctionnalité n°1 du cahier des charges V2.0 (envoi des résultats académiques par SMS, avec sélection structurée session/niveau/classe/programme/semestre) est reconstruite proprement — données structurées plutôt que texte libre, import avec rapport détaillé et déduplication, aperçu fidèle avant envoi, vérification du solde, et réutilisation complète du moteur de campagnes déjà validé (idempotence, retry, pause/reprise, suivi temps réel) sans dupliquer aucune logique d'envoi.
+
+## Suite session 3 (2026-09-11) : liste d'étudiants sélectionnable + cache du solde Orange
+
+**Objectif** : combler deux limites documentées dans la livraison précédente — §16-17 du cahier des charges demande un vrai tableau d'étudiants (matricule/nom/classe/téléphone/moyenne/mention/statut) avec sélection/désélection individuelle et exclusion des étudiants déjà envoyés, alors que le premier jet ne montrait qu'un compteur agrégé + un seul échantillon.
+
+**Fichiers créés** :
+- `database/migrations/006_resultats_derniere_campagne.sql` — ajoute `resultats_academiques.derniere_campagne_id` (FK vers `campagne`), pour savoir de façon fiable si un étudiant a déjà reçu ses résultats, sans deviner par correspondance de texte libre entre campagnes.
+- `server/resultats_list.php` — endpoint JSON paginé (50/page) : matricule/nom/prénom/classe/téléphone/moyenne/mention/`deja_envoye`, avec recherche (`search`, ILIKE nom/prénom/matricule) et exclusion (`exclude_already_sent`).
+- `tests/Unit/OrangeSmsServiceBalanceCacheTest.php` — 4 tests (via réflexion, aucun réseau réel) pour le cache du solde.
+
+**Fichiers modifiés** :
+- `src/Services/AcademicResultsService.php` — `buildWhere()`/`getMatching()`/`countMatching()` acceptent désormais `search`, `exclude_already_sent` et `exclude_ids` ; `getMatching()` calcule `deja_envoye` par sous-requête sur `messages` via `derniere_campagne_id` ; nouvelle méthode `markCampaignForRows()` appelée juste après `addRecipients()` pour enregistrer quelle campagne a été proposée à chaque étudiant.
+- `server/app.php` — `create_resultats_campagne` et `test_sms_resultats` acceptent `excluded_ids`/`exclude_already_sent` (cases décochées dans le tableau) et appellent `markCampaignForRows()`.
+- `server/resultats_preview.php` — honore les mêmes exclusions pour que le compteur/l'estimation SMS restent cohérents avec ce qui sera réellement créé.
+- `app/templete/resultats.php` — nouveau tableau paginé avec case à cocher par ligne, case "tout sélectionner", case "exclure les étudiants déjà envoyés", recherche en direct, pagination, et badge "Déjà envoyé" par ligne.
+- `src/Services/OrangeSmsService.php` — `getBalance(int $maxAgeSeconds = 20)` : cache fichier (comme le token) pour éviter un appel réseau réel à Orange à chaque frappe dans l'écran Résultats. `maxAgeSeconds = 0` force une lecture fraîche, utilisé pour le contrôle bloquant juste avant la création réelle d'une campagne (§20) — jamais de décision de blocage basée sur un solde périmé.
+
+**Bug de perf réel trouvé en testant en navigateur (pas par relecture)** : chaque frappe dans le modèle de message ou changement de filtre déclenchait un appel réseau réel à `getBalance()` (aucun cache n'existait, problème déjà pointé du doigt dès l'audit initial §7 sans avoir été corrigé) — la liste d'étudiants mettait plusieurs secondes à apparaître, le serveur de dev PHP étant mono-thread et les requêtes AJAX se mettant en file derrière l'appel Orange. Corrigé par le cache ci-dessus ; après correctif, la liste s'affiche immédiatement lors du premier test navigateur suivant.
+
+**Bug secondaire trouvé et corrigé** : le compteur "X exclu(s) manuellement" ne se mettait à jour qu'au rechargement complet de la liste (pagination/filtre), pas immédiatement après avoir décoché une case — corrigé en recalculant ce texte directement dans les gestionnaires de case à cocher.
+
+**Tests réalisés** :
+1. Suite PHPUnit complète → **67 tests, 136 assertions**, aucune régression (7 nouveaux tests d'intégration sur `search`/`exclude_ids`/`markCampaignForRows`/`exclude_already_sent`, 4 nouveaux tests unitaires sur le cache du solde).
+2. Parcours navigateur réel (Playwright) : import de 3 étudiants de test → tableau affiché avec les bonnes colonnes → décocher un étudiant fait bien baisser le compteur d'aperçu (3→2) et met à jour `excluded_ids` caché → recherche par nom/matricule confirmée fonctionnelle contre le vrai endpoint (isolée du reste du flux) → case "exclure déjà envoyés" sans aucun envoi préalable laisse les 3 étudiants visibles (comportement attendu).
+3. Données de test nettoyées après vérification (`BRTEST-*`, campagnes/imports associés).
+
+**Résultat** : l'écran Résultats académiques permet maintenant une sélection fine (voir chaque étudiant, l'exclure individuellement, ou exclure en masse ceux déjà servis) conforme au §16-17, et le solde Orange n'est plus interrogé en réseau à chaque interaction — seulement au maximum une fois toutes les 20 secondes pour l'aperçu, et toujours en direct pour le contrôle bloquant réel.

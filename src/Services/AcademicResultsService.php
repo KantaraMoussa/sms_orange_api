@@ -292,16 +292,40 @@ class AcademicResultsService
         return $options;
     }
 
+    /**
+     * @param array{session_academique?:string,niveau?:string,classe?:string,programme?:string,semestre?:string,search?:string,exclude_already_sent?:bool,exclude_ids?:list<int>} $filters
+     */
     private function buildWhere(array $filters): array
     {
-        $where = ["statut = 'actif'"];
+        $where = ["r.statut = 'actif'"];
         $params = [];
 
         foreach (['session_academique', 'niveau', 'classe', 'programme', 'semestre'] as $field) {
             if (!empty($filters[$field])) {
-                $where[] = "$field = :$field";
+                $where[] = "r.$field = :$field";
                 $params[":$field"] = $filters[$field];
             }
+        }
+
+        if (!empty($filters['search'])) {
+            $where[] = "(r.nom ILIKE :search OR r.prenom ILIKE :search OR r.matricule ILIKE :search)";
+            $params[':search'] = '%' . $filters['search'] . '%';
+        }
+
+        if (!empty($filters['exclude_already_sent'])) {
+            $where[] = "NOT COALESCE((SELECT bool_or(m.statut = 'envoye') FROM messages m
+                WHERE m.campagne_id = r.derniere_campagne_id AND m.matricule = r.matricule), FALSE)";
+        }
+
+        if (!empty($filters['exclude_ids'])) {
+            $ids = array_map('intval', $filters['exclude_ids']);
+            $placeholders = [];
+            foreach ($ids as $i => $id) {
+                $key = ":excl_$i";
+                $placeholders[] = $key;
+                $params[$key] = $id;
+            }
+            $where[] = 'r.id NOT IN (' . implode(',', $placeholders) . ')';
         }
 
         return [implode(' AND ', $where), $params];
@@ -310,17 +334,26 @@ class AcademicResultsService
     public function countMatching(array $filters): int
     {
         [$where, $params] = $this->buildWhere($filters);
-        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM resultats_academiques WHERE $where");
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM resultats_academiques r WHERE $where");
         $stmt->execute($params);
 
         return (int) $stmt->fetchColumn();
     }
 
-    /** @return list<array<string,mixed>> */
+    /**
+     * @return list<array<string,mixed>> chaque ligne inclut `deja_envoye` (bool) :
+     *   vrai si la dernière campagne de résultats à laquelle cet étudiant a été
+     *   ajouté (`derniere_campagne_id`) lui a effectivement envoyé un SMS (§17).
+     */
     public function getMatching(array $filters, ?int $limit = null, int $offset = 0): array
     {
         [$where, $params] = $this->buildWhere($filters);
-        $sql = "SELECT * FROM resultats_academiques WHERE $where ORDER BY nom, prenom";
+        $sql = "SELECT r.*,
+                    COALESCE((SELECT bool_or(m.statut = 'envoye') FROM messages m
+                        WHERE m.campagne_id = r.derniere_campagne_id AND m.matricule = r.matricule), FALSE) AS deja_envoye
+                FROM resultats_academiques r
+                WHERE $where
+                ORDER BY r.nom, r.prenom";
         if ($limit !== null) {
             $sql .= " LIMIT :limit OFFSET :offset";
         }
@@ -335,7 +368,12 @@ class AcademicResultsService
         }
         $stmt->execute();
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$row) {
+            $row['deja_envoye'] = in_array($row['deja_envoye'], [true, 't', '1', 1], true);
+        }
+
+        return $rows;
     }
 
     public function getSample(array $filters): ?array
@@ -343,6 +381,26 @@ class AcademicResultsService
         $rows = $this->getMatching($filters, 1, 0);
 
         return $rows[0] ?? null;
+    }
+
+    /**
+     * Enregistre, pour chaque résultat inclus dans une campagne, l'identifiant
+     * de cette campagne — seule façon fiable de répondre plus tard à "cet
+     * étudiant a-t-il déjà reçu ses résultats ?" (§17) sans deviner par
+     * correspondance de texte libre entre campagnes.
+     *
+     * @param list<int> $resultatIds
+     */
+    public function markCampaignForRows(int $campaignId, array $resultatIds): void
+    {
+        if (empty($resultatIds)) {
+            return;
+        }
+
+        $ids = array_map('intval', $resultatIds);
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare("UPDATE resultats_academiques SET derniere_campagne_id = ? WHERE id IN ($placeholders)");
+        $stmt->execute(array_merge([$campaignId], $ids));
     }
 
     /**

@@ -108,6 +108,14 @@ $availableVars = ['nom', 'prenom', 'matricule', 'classe', 'niveau', 'programme',
                             <?php endforeach; ?>
                         </select>
                     </div>
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="exclude_already_sent">
+                            <label class="form-check-label" for="exclude_already_sent">
+                                Exclure les étudiants ayant déjà reçu leurs résultats
+                            </label>
+                        </div>
+                    </div>
                 </div>
 
                 <hr>
@@ -142,6 +150,8 @@ $availableVars = ['nom', 'prenom', 'matricule', 'classe', 'niveau', 'programme',
                     <input type="hidden" name="f_classe" id="hidden_f_classe">
                     <input type="hidden" name="f_programme" id="hidden_f_programme">
                     <input type="hidden" name="f_semestre" id="hidden_f_semestre">
+                    <input type="hidden" name="exclude_already_sent" id="hidden_exclude_already_sent" value="">
+                    <input type="hidden" name="excluded_ids" id="hidden_excluded_ids" value="">
 
                     <div class="mb-2">
                         <label class="form-label">Variables disponibles (cliquer pour insérer)</label><br>
@@ -188,11 +198,53 @@ $availableVars = ['nom', 'prenom', 'matricule', 'classe', 'niveau', 'programme',
     </div>
 </div>
 
+<div class="row mt-3">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h4 class="mb-0">📋 Liste des étudiants correspondants</h4>
+                <div class="d-flex gap-2">
+                    <input type="text" class="form-control form-control-sm" id="student_search" placeholder="Rechercher (nom, prénom, matricule)" style="width:250px;">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-reset-exclusions">Tout réinclure</button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped mb-0">
+                        <thead>
+                            <tr>
+                                <th style="width:2rem;"><input type="checkbox" id="student-select-all" checked></th>
+                                <th>Matricule</th><th>Nom</th><th>Prénom</th><th>Classe</th><th>Téléphone</th><th>Moyenne</th><th>Mention</th><th>Statut</th>
+                            </tr>
+                        </thead>
+                        <tbody id="student-list-body">
+                            <tr><td colspan="9" class="text-center text-muted p-3">Choisissez des filtres ci-dessus pour afficher les étudiants correspondants.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card-footer d-flex justify-content-between align-items-center">
+                <small class="text-muted" id="student-list-summary"></small>
+                <div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-prev-page">« Précédent</button>
+                    <span class="mx-2" id="student-page-indicator">—</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-next-page">Suivant »</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 (function () {
     const filterIds = ['f_session', 'f_niveau', 'f_classe', 'f_programme', 'f_semestre'];
     const paramNames = { f_session: 'session', f_niveau: 'niveau', f_classe: 'classe', f_programme: 'programme', f_semestre: 'semestre' };
     let debounceTimer = null;
+    let excludedIds = new Set();
+    let currentPage = 1;
+    let totalPages = 1;
+    let lastTotal = 0;
+    const rowsById = new Map(); // id -> row data, for the currently loaded page
 
     function currentFilters() {
         const params = {};
@@ -201,12 +253,20 @@ $availableVars = ['nom', 'prenom', 'matricule', 'classe', 'niveau', 'programme',
             params[paramNames[id]] = val;
             document.getElementById('hidden_' + id).value = val;
         });
+        params.exclude_already_sent = document.getElementById('exclude_already_sent').checked ? '1' : '';
         return params;
+    }
+
+    function syncHiddenExclusionFields() {
+        document.getElementById('hidden_exclude_already_sent').value = document.getElementById('exclude_already_sent').checked ? '1' : '';
+        document.getElementById('hidden_excluded_ids').value = Array.from(excludedIds).join(',');
     }
 
     function refreshPreview() {
         const params = currentFilters();
         params.template = document.getElementById('message_template').value;
+        params.exclude_ids = Array.from(excludedIds).join(',');
+        syncHiddenExclusionFields();
 
         const qs = new URLSearchParams(params).toString();
         fetch('../server/resultats_preview.php?' + qs)
@@ -243,13 +303,126 @@ $availableVars = ['nom', 'prenom', 'matricule', 'classe', 'niveau', 'programme',
             .catch(() => {});
     }
 
+    function renderStudentRow(row) {
+        const tr = document.createElement('tr');
+        const checked = !excludedIds.has(row.id);
+        tr.innerHTML =
+            '<td><input type="checkbox" class="student-row-check" data-id="' + row.id + '"' + (checked ? ' checked' : '') + '></td>' +
+            '<td>' + (row.matricule || '') + '</td>' +
+            '<td>' + (row.nom || '') + '</td>' +
+            '<td>' + (row.prenom || '') + '</td>' +
+            '<td>' + (row.classe || '') + '</td>' +
+            '<td>' + (row.telephone || '') + '</td>' +
+            '<td>' + (row.moyenne || '') + '</td>' +
+            '<td>' + (row.mention || '') + '</td>' +
+            '<td>' + (row.deja_envoye ? '<span class="badge bg-warning text-dark">Déjà envoyé</span>' : '<span class="badge bg-light text-muted">—</span>') + '</td>';
+        return tr;
+    }
+
+    function refreshStudentList() {
+        const params = currentFilters();
+        params.search = document.getElementById('student_search').value;
+        params.page = currentPage;
+        params.per_page = 50;
+
+        const qs = new URLSearchParams(params).toString();
+        fetch('../server/resultats_list.php?' + qs)
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) return;
+                totalPages = data.total_pages || 1;
+                const tbody = document.getElementById('student-list-body');
+                tbody.innerHTML = '';
+                rowsById.clear();
+
+                if (data.rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted p-3">Aucun étudiant ne correspond à ces critères.</td></tr>';
+                } else {
+                    data.rows.forEach(row => {
+                        rowsById.set(row.id, row);
+                        tbody.appendChild(renderStudentRow(row));
+                    });
+                }
+
+                lastTotal = data.total;
+                updateSummaryText();
+                document.getElementById('student-page-indicator').textContent = 'Page ' + data.page + ' / ' + Math.max(1, totalPages);
+                updateSelectAllCheckbox();
+            })
+            .catch(() => {});
+    }
+
+    function updateSummaryText() {
+        document.getElementById('student-list-summary').textContent = lastTotal + ' étudiant(s) au total (' + excludedIds.size + ' exclu(s) manuellement)';
+    }
+
+    function updateSelectAllCheckbox() {
+        const boxes = document.querySelectorAll('.student-row-check');
+        const allChecked = Array.from(boxes).every(b => b.checked);
+        document.getElementById('student-select-all').checked = boxes.length > 0 && allChecked;
+    }
+
     function scheduleRefresh() {
         clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(refreshPreview, 300);
+        debounceTimer = setTimeout(function () {
+            refreshPreview();
+            currentPage = 1;
+            refreshStudentList();
+        }, 300);
     }
 
     filterIds.forEach(id => document.getElementById(id).addEventListener('change', scheduleRefresh));
-    document.getElementById('message_template').addEventListener('input', scheduleRefresh);
+    document.getElementById('exclude_already_sent').addEventListener('change', scheduleRefresh);
+    document.getElementById('message_template').addEventListener('input', function () {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(refreshPreview, 300); // le modèle n'affecte pas la liste, seulement l'aperçu/le calcul SMS
+    });
+
+    let searchDebounce = null;
+    document.getElementById('student_search').addEventListener('input', function () {
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(function () { currentPage = 1; refreshStudentList(); }, 400);
+    });
+
+    document.getElementById('student-list-body').addEventListener('change', function (e) {
+        if (!e.target.classList.contains('student-row-check')) return;
+        const id = parseInt(e.target.dataset.id, 10);
+        if (e.target.checked) {
+            excludedIds.delete(id);
+        } else {
+            excludedIds.add(id);
+        }
+        syncHiddenExclusionFields();
+        updateSelectAllCheckbox();
+        updateSummaryText();
+        refreshPreview();
+    });
+
+    document.getElementById('student-select-all').addEventListener('change', function () {
+        const check = this.checked;
+        document.querySelectorAll('.student-row-check').forEach(box => {
+            const id = parseInt(box.dataset.id, 10);
+            box.checked = check;
+            if (check) { excludedIds.delete(id); } else { excludedIds.add(id); }
+        });
+        syncHiddenExclusionFields();
+        updateSummaryText();
+        refreshPreview();
+    });
+
+    document.getElementById('btn-reset-exclusions').addEventListener('click', function () {
+        excludedIds.clear();
+        syncHiddenExclusionFields();
+        refreshPreview();
+        refreshStudentList();
+    });
+
+    document.getElementById('btn-prev-page').addEventListener('click', function () {
+        if (currentPage > 1) { currentPage--; refreshStudentList(); }
+    });
+    document.getElementById('btn-next-page').addEventListener('click', function () {
+        if (currentPage < totalPages) { currentPage++; refreshStudentList(); }
+    });
 
     document.querySelectorAll('.insert-var').forEach(btn => {
         btn.addEventListener('click', function () {
@@ -260,11 +433,12 @@ $availableVars = ['nom', 'prenom', 'matricule', 'classe', 'niveau', 'programme',
             textarea.value = textarea.value.slice(0, start) + token + textarea.value.slice(end);
             textarea.focus();
             textarea.selectionStart = textarea.selectionEnd = start + token.length;
-            scheduleRefresh();
+            refreshPreview();
         });
     });
 
     document.getElementById('resultatsForm').addEventListener('submit', function (e) {
+        syncHiddenExclusionFields();
         const submitter = e.submitter;
         if (submitter && submitter.name === 'create_resultats_campagne') {
             const count = document.getElementById('preview-count').textContent;
@@ -275,5 +449,6 @@ $availableVars = ['nom', 'prenom', 'matricule', 'classe', 'niveau', 'programme',
     });
 
     refreshPreview();
+    refreshStudentList();
 })();
 </script>

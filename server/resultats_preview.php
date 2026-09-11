@@ -18,12 +18,16 @@ if (!auth()->check()) {
     exit;
 }
 
+$excludedIds = array_filter(array_map('intval', explode(',', (string) ($_GET['exclude_ids'] ?? ''))));
+
 $filters = [
     'session_academique' => trim($_GET['session'] ?? ''),
     'niveau' => trim($_GET['niveau'] ?? ''),
     'classe' => trim($_GET['classe'] ?? ''),
     'programme' => trim($_GET['programme'] ?? ''),
     'semestre' => trim($_GET['semestre'] ?? ''),
+    'exclude_already_sent' => !empty($_GET['exclude_already_sent']),
+    'exclude_ids' => $excludedIds,
 ];
 $template = (string) ($_GET['template'] ?? '');
 

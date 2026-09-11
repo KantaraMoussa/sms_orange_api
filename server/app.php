@@ -234,6 +234,8 @@ if (isset($_POST['test_sms_resultats'])) {
         'classe' => trim($_POST['f_classe'] ?? ''),
         'programme' => trim($_POST['f_programme'] ?? ''),
         'semestre' => trim($_POST['f_semestre'] ?? ''),
+        'exclude_already_sent' => !empty($_POST['exclude_already_sent']),
+        'exclude_ids' => array_filter(array_map('intval', explode(',', (string) ($_POST['excluded_ids'] ?? '')))),
     ];
     $sample = academicResults()->getSample($filters);
     $templateVars = $sample !== null ? \App\Services\AcademicResultsService::toTemplateVars($sample) : [];
@@ -254,12 +256,17 @@ if (isset($_POST['test_sms_resultats'])) {
 if (isset($_POST['create_resultats_campagne'])) {
     $nom = trim($_POST['campagne_name'] ?? '');
     $template = trim($_POST['message_template'] ?? '');
-    $filters = [
+    $baseFilters = [
         'session_academique' => trim($_POST['f_session'] ?? ''),
         'niveau' => trim($_POST['f_niveau'] ?? ''),
         'classe' => trim($_POST['f_classe'] ?? ''),
         'programme' => trim($_POST['f_programme'] ?? ''),
         'semestre' => trim($_POST['f_semestre'] ?? ''),
+    ];
+    $excludedIds = array_filter(array_map('intval', explode(',', (string) ($_POST['excluded_ids'] ?? ''))));
+    $filters = $baseFilters + [
+        'exclude_already_sent' => !empty($_POST['exclude_already_sent']),
+        'exclude_ids' => $excludedIds,
     ];
 
     if ($nom === '' || $template === '') {
@@ -278,8 +285,9 @@ if (isset($_POST['create_resultats_campagne'])) {
     }
 
     // Vérification du solde avant création (§20/§27) : bloque si le solde Orange est insuffisant.
+    // maxAgeSeconds=0 force une lecture fraîche (pas le cache utilisé par l'aperçu en direct).
     try {
-        $balance = orangeSms()->getBalance();
+        $balance = orangeSms()->getBalance(0);
         $available = (int) ($balance['availableUnits'] ?? 0);
         if ($available > 0 && count($rows) > $available) {
             $_SESSION['class'] = "alert alert-danger";
@@ -294,7 +302,7 @@ if (isset($_POST['create_resultats_campagne'])) {
 
     $campagneId = campaignQueue()->createCampaign(
         $nom,
-        'Résultats académiques — ' . implode(' / ', array_filter($filters)),
+        'Résultats académiques — ' . implode(' / ', array_filter($baseFilters)),
         'resultats',
         auth()->user()['nom'] ?? null,
         50
@@ -312,6 +320,8 @@ if (isset($_POST['create_resultats_campagne'])) {
         ];
     }
     $result = campaignQueue()->addRecipients($campagneId, $recipients);
+    // Permet de répondre plus tard à "cet étudiant a-t-il déjà reçu ses résultats ?" (§17).
+    academicResults()->markCampaignForRows($campagneId, array_column($rows, 'id'));
 
     $_SESSION['class'] = "alert alert-success";
     $_SESSION['message'] = "✅ Campagne préparée : {$result['added']} destinataire(s) ajouté(s), {$result['duplicates']} déjà en file, {$result['invalid']} numéro(s) invalide(s). Vérifiez le journal puis lancez l'envoi.";
