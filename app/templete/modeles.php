@@ -30,7 +30,7 @@ $categoryLabels = [
                                 <td><small><?= htmlspecialchars(mb_substr($t['contenu'], 0, 60)) ?><?= mb_strlen($t['contenu']) > 60 ? '…' : '' ?></small></td>
                                 <td><?= ($t['archive'] === 't' || $t['archive'] === true) ? '<span class="badge bg-secondary">Archivé</span>' : '<span class="badge bg-success">Actif</span>' ?></td>
                                 <td class="text-nowrap">
-                                    <button type="button" class="btn btn-sm btn-outline-primary" onclick='openEditTemplate(<?= json_encode($t) ?>)'>Modifier</button>
+                                    <button type="button" class="btn btn-sm btn-outline-primary" onclick='openEditTemplate(<?= htmlspecialchars(json_encode($t), ENT_QUOTES) ?>)'>Modifier</button>
                                     <form action="../server/app.php" method="post" class="d-inline">
                                         <?= csrf_field() ?>
                                         <input type="hidden" name="template_id" value="<?= (int) $t['id'] ?>">

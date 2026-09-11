@@ -65,7 +65,7 @@ $savedTemplates = smsTemplates()->all(false);
             <div class="card-body">
                 <div class="row g-2">
                     <div class="col-6">
-                        <label class="form-label">Session</label>
+                        <label class="form-label" for="f_session">Session</label>
                         <select class="form-select filter-input" id="f_session">
                             <option value="">Toutes</option>
                             <?php foreach ($filterOptions['session_academique'] as $v): ?>
@@ -74,7 +74,7 @@ $savedTemplates = smsTemplates()->all(false);
                         </select>
                     </div>
                     <div class="col-6">
-                        <label class="form-label">Niveau</label>
+                        <label class="form-label" for="f_niveau">Niveau</label>
                         <select class="form-select filter-input" id="f_niveau">
                             <option value="">Tous</option>
                             <?php foreach ($filterOptions['niveau'] as $v): ?>
@@ -83,7 +83,7 @@ $savedTemplates = smsTemplates()->all(false);
                         </select>
                     </div>
                     <div class="col-6">
-                        <label class="form-label">Classe</label>
+                        <label class="form-label" for="f_classe">Classe</label>
                         <select class="form-select filter-input" id="f_classe">
                             <option value="">Toutes</option>
                             <?php foreach ($filterOptions['classe'] as $v): ?>
@@ -92,7 +92,7 @@ $savedTemplates = smsTemplates()->all(false);
                         </select>
                     </div>
                     <div class="col-6">
-                        <label class="form-label">Programme</label>
+                        <label class="form-label" for="f_programme">Programme</label>
                         <select class="form-select filter-input" id="f_programme">
                             <option value="">Tous</option>
                             <?php foreach ($filterOptions['programme'] as $v): ?>
@@ -101,7 +101,7 @@ $savedTemplates = smsTemplates()->all(false);
                         </select>
                     </div>
                     <div class="col-12">
-                        <label class="form-label">Semestre</label>
+                        <label class="form-label" for="f_semestre">Semestre</label>
                         <select class="form-select filter-input" id="f_semestre">
                             <option value="">Tous</option>
                             <?php foreach ($filterOptions['semestre'] as $v): ?>
@@ -110,6 +110,18 @@ $savedTemplates = smsTemplates()->all(false);
                         </select>
                     </div>
                     <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="only_with_phone" checked>
+                            <label class="form-check-label" for="only_with_phone">
+                                Uniquement les étudiants avec téléphone
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="only_with_results">
+                            <label class="form-check-label" for="only_with_results">
+                                Uniquement les résultats disponibles (moyenne renseignée)
+                            </label>
+                        </div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="exclude_already_sent">
                             <label class="form-check-label" for="exclude_already_sent">
@@ -153,6 +165,8 @@ $savedTemplates = smsTemplates()->all(false);
                     <input type="hidden" name="f_semestre" id="hidden_f_semestre">
                     <input type="hidden" name="exclude_already_sent" id="hidden_exclude_already_sent" value="">
                     <input type="hidden" name="excluded_ids" id="hidden_excluded_ids" value="">
+                    <input type="hidden" name="only_with_phone" id="hidden_only_with_phone" value="">
+                    <input type="hidden" name="only_with_results" id="hidden_only_with_results" value="">
 
                     <?php if (!empty($savedTemplates)): ?>
                     <div class="mb-2">
@@ -168,7 +182,7 @@ $savedTemplates = smsTemplates()->all(false);
                     <?php endif; ?>
 
                     <div class="mb-2">
-                        <label class="form-label">Variables disponibles (cliquer pour insérer)</label><br>
+                        <span class="form-label d-block" id="vars-heading">Variables disponibles (cliquer pour insérer)</span>
                         <?php foreach ($availableVars as $var): ?>
                             <button type="button" class="btn btn-sm btn-outline-secondary mb-1 insert-var" data-var="<?= $var ?>">{{<?= $var ?>}}</button>
                         <?php endforeach; ?>
@@ -218,6 +232,7 @@ $savedTemplates = smsTemplates()->all(false);
             <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <h4 class="mb-0">📋 Liste des étudiants correspondants</h4>
                 <div class="d-flex gap-2">
+                    <label for="student_search" class="visually-hidden">Rechercher un étudiant</label>
                     <input type="text" class="form-control form-control-sm" id="student_search" placeholder="Rechercher (nom, prénom, matricule)" style="width:250px;">
                     <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-reset-exclusions">Tout réinclure</button>
                 </div>
@@ -227,7 +242,7 @@ $savedTemplates = smsTemplates()->all(false);
                     <table class="table table-sm table-striped mb-0">
                         <thead>
                             <tr>
-                                <th style="width:2rem;"><input type="checkbox" id="student-select-all" checked></th>
+                                <th style="width:2rem;"><input type="checkbox" id="student-select-all" checked aria-label="Sélectionner/désélectionner tous les étudiants de la page"></th>
                                 <th>Matricule</th><th>Nom</th><th>Prénom</th><th>Classe</th><th>Téléphone</th><th>Moyenne</th><th>Mention</th><th>Statut</th>
                             </tr>
                         </thead>
@@ -268,12 +283,16 @@ $savedTemplates = smsTemplates()->all(false);
             document.getElementById('hidden_' + id).value = val;
         });
         params.exclude_already_sent = document.getElementById('exclude_already_sent').checked ? '1' : '';
+        params.only_with_phone = document.getElementById('only_with_phone').checked ? '1' : '';
+        params.only_with_results = document.getElementById('only_with_results').checked ? '1' : '';
         return params;
     }
 
     function syncHiddenExclusionFields() {
         document.getElementById('hidden_exclude_already_sent').value = document.getElementById('exclude_already_sent').checked ? '1' : '';
         document.getElementById('hidden_excluded_ids').value = Array.from(excludedIds).join(',');
+        document.getElementById('hidden_only_with_phone').value = document.getElementById('only_with_phone').checked ? '1' : '';
+        document.getElementById('hidden_only_with_results').value = document.getElementById('only_with_results').checked ? '1' : '';
     }
 
     function refreshPreview() {
@@ -317,19 +336,46 @@ $savedTemplates = smsTemplates()->all(false);
             .catch(() => {});
     }
 
+    function textCell(value) {
+        const td = document.createElement('td');
+        td.textContent = value == null ? '' : String(value);
+        return td;
+    }
+
+    // Construit la ligne via le DOM (createElement/textContent), jamais via
+    // innerHTML + concaténation : row.nom/prenom/... viennent d'un fichier
+    // importé par l'utilisateur, donc potentiellement hostile (XSS stocké
+    // si on les insérait tel quel dans du HTML).
     function renderStudentRow(row) {
         const tr = document.createElement('tr');
         const checked = !excludedIds.has(row.id);
-        tr.innerHTML =
-            '<td><input type="checkbox" class="student-row-check" data-id="' + row.id + '"' + (checked ? ' checked' : '') + '></td>' +
-            '<td>' + (row.matricule || '') + '</td>' +
-            '<td>' + (row.nom || '') + '</td>' +
-            '<td>' + (row.prenom || '') + '</td>' +
-            '<td>' + (row.classe || '') + '</td>' +
-            '<td>' + (row.telephone || '') + '</td>' +
-            '<td>' + (row.moyenne || '') + '</td>' +
-            '<td>' + (row.mention || '') + '</td>' +
-            '<td>' + (row.deja_envoye ? '<span class="badge bg-warning text-dark">Déjà envoyé</span>' : '<span class="badge bg-light text-muted">—</span>') + '</td>';
+        const fullName = ((row.nom || '') + ' ' + (row.prenom || '')).trim() || ('étudiant #' + row.id);
+
+        const checkTd = document.createElement('td');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'student-row-check';
+        checkbox.dataset.id = row.id;
+        checkbox.checked = checked;
+        checkbox.setAttribute('aria-label', 'Sélectionner ' + fullName);
+        checkTd.appendChild(checkbox);
+
+        const statusTd = document.createElement('td');
+        const badge = document.createElement('span');
+        badge.className = row.deja_envoye ? 'badge bg-warning text-dark' : 'badge bg-light text-muted';
+        badge.textContent = row.deja_envoye ? 'Déjà envoyé' : '—';
+        statusTd.appendChild(badge);
+
+        tr.appendChild(checkTd);
+        tr.appendChild(textCell(row.matricule));
+        tr.appendChild(textCell(row.nom));
+        tr.appendChild(textCell(row.prenom));
+        tr.appendChild(textCell(row.classe));
+        tr.appendChild(textCell(row.telephone));
+        tr.appendChild(textCell(row.moyenne));
+        tr.appendChild(textCell(row.mention));
+        tr.appendChild(statusTd);
+
         return tr;
     }
 
@@ -387,6 +433,8 @@ $savedTemplates = smsTemplates()->all(false);
 
     filterIds.forEach(id => document.getElementById(id).addEventListener('change', scheduleRefresh));
     document.getElementById('exclude_already_sent').addEventListener('change', scheduleRefresh);
+    document.getElementById('only_with_phone').addEventListener('change', scheduleRefresh);
+    document.getElementById('only_with_results').addEventListener('change', scheduleRefresh);
     document.getElementById('message_template').addEventListener('input', function () {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(refreshPreview, 300); // le modèle n'affecte pas la liste, seulement l'aperçu/le calcul SMS

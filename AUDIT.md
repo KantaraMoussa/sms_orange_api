@@ -483,7 +483,7 @@ Toutes les phases prioritaires du cahier des charges ont été traitées, testé
 
 audit, sécurité/config, moteur de campagnes, interface + résultats académiques, authentification/rôles, dashboard/graphiques, nettoyage, CSRF, documentation, rapports, tests automatisés, health check, identité visuelle, accessibilité (partielle), test de charge 10k+.
 
-**Reste, si une suite est souhaitée** : accessibilité exhaustive sur tous les formulaires, tests de charge à 50 000+/100 000+ pour une marge de sécurité plus large, verrouillage de tentatives de connexion (anti brute-force), un vrai logo, et la mise à niveau `APP_ENV=production`/`APP_DEBUG=false` avant toute mise en ligne réelle (actuellement encore en développement, correctement signalé `WARNING` par `health.php`).
+**Reste, si une suite est souhaitée** : un vrai logo, et la mise à niveau `APP_ENV=production`/`APP_DEBUG=false` avant toute mise en ligne réelle (actuellement encore en développement, correctement signalé `WARNING` par `health.php`). L'accessibilité exhaustive, les tests de charge à 50 000/100 000 et le verrouillage anti brute-force, mentionnés ici comme suite possible, ont depuis été traités — voir la session 3 plus bas.
 
 ---
 
@@ -665,3 +665,48 @@ Premier essai sans `CASCADE` rejeté par PostgreSQL (contrainte `sms_destinatair
 4. Données de test nettoyées après vérification (`PWTPL*`, entrées de journal associées).
 
 **Résultat** : le dashboard respecte maintenant les 4 graphiques attendus par le §12, un administrateur peut composer un message une fois et le réutiliser (§25), et un bug d'UX critique (dashboard invisible juste après connexion) — présent depuis plusieurs sessions sans être détecté — est corrigé.
+
+## Suite session 3 (2026-09-11, fin) : finalisation — accessibilité, design system, responsive, sélection massive, test de charge 50k/100k
+
+**Objectif** : traiter les 5 derniers écarts identifiés à la demande explicite de l'utilisateur ("finalise tous sa vite").
+
+### Accessibilité (§43, exhaustive cette fois)
+- Labels manquants corrigés : `sms-sender.php` (numéro/message, même formulaire "envoi rapide" que le dashboard mais jamais corrigé lors de la Phase 43 initiale), les 5 filtres de sélection de `resultats.php` (Session/Niveau/Classe/Programme/Semestre — les `<label>` existaient mais sans attribut `for`, donc non associés), le champ de recherche d'étudiants (`student_search`), la case "tout sélectionner" (`student-select-all`), et l'input de recherche décoratif de l'en-tête (`app/index.php`, hérité du thème).
+- Case à cocher générée dynamiquement par ligne d'étudiant : `aria-label` explicite avec le nom complet de l'étudiant.
+- Un `<label>` sans `for` (au-dessus des boutons "Variables disponibles", qui ne pilotent aucun champ unique) a été changé en `<span>` pour rester sémantiquement correct.
+
+### 🔒 Faille XSS stockée trouvée et corrigée (hors périmètre initial, trouvée en corrigeant l'accessibilité)
+En ajoutant l'`aria-label` de la case à cocher par étudiant, révision de `renderStudentRow()` (JS, `resultats.php`) : la fonction construisait chaque ligne via `innerHTML` + concaténation de chaînes avec les données `nom`/`prenom`/`matricule`/... **directement issues d'un fichier importé par l'utilisateur, jamais échappées**. Un nom d'étudiant contenant `<img src=x onerror=...>` se serait exécuté dans le navigateur de tout administrateur consultant l'écran Résultats. Corrigé en reconstruisant la ligne via le DOM (`createElement`/`textContent`) au lieu de `innerHTML`, qui élimine la classe de bug entièrement plutôt que d'ajouter un échappement au cas par cas. **Vérifié avec un vrai payload XSS importé** (Playwright) : le texte s'affiche littéralement, aucune boîte de dialogue `alert()` déclenchée, `<img` absent du DOM rendu.
+
+Un second problème du même type, moins sévère (créé uniquement par un compte ADMIN/OPERATOR authentifié, donc surtout un risque de self-XSS), a été trouvé par relecture dans `app/templete/modeles.php` : `onclick='openEditTemplate(<?= json_encode($t) ?>)'` embarque du JSON dans un attribut HTML à guillemets simples sans échapper les guillemets simples du contenu — un modèle contenant une apostrophe casserait l'attribut. Corrigé avec `htmlspecialchars(json_encode($t), ENT_QUOTES)`.
+
+### Design system (§14)
+Création de `DESIGN_SYSTEM.md` : palette de couleurs réelle (preset `preset-6`, `#fd7e14`), typographie, jeux d'icônes, et convention documentée pour chaque famille de composant déjà en usage (boutons, cartes, badges, formulaires, tableaux, modales, notifications, barres de progression, graphiques, états vides/erreur), plus un rappel accessibilité et responsive. Documente l'existant plutôt que d'inventer un nouveau système parallèle.
+
+### Responsive/mobile (§42, testé explicitement)
+Testé en Playwright à 390px de large (gabarit iPhone) sur Dashboard/Résultats/Campagnes/Modèles/Journal : **aucun débordement horizontal** (`document.body.scrollWidth` = `window.innerWidth` sur les 5 pages), captures d'écran vérifiées visuellement — sidebar réduite en icône hamburger, cartes KPI empilées, graphiques lisibles, tableaux dans leur conteneur défilant. Le thème Bootstrap gérait déjà correctement le responsive ; aucun correctif de mise en page n'a été nécessaire, seulement la vérification.
+
+### Sélection massive (§17, complétée)
+Ajout de deux filtres réels dans `AcademicResultsService::buildWhere()` : `only_with_phone` (`telephone IS NOT NULL AND <> ''` — toujours vrai en pratique puisque le téléphone est validé à l'import, mais gardé comme garde-fou explicite plutôt que supposé) et `only_with_results` (`moyenne IS NOT NULL AND <> ''` — filtre réellement utile pour exclure les lignes importées avec une moyenne non encore renseignée). Câblés de bout en bout : `resultats_preview.php`, `resultats_list.php`, `server/app.php` (test SMS + création de campagne), UI (`resultats.php`, cases à cocher avec labels corrects). 2 nouveaux tests d'intégration.
+
+### Test de charge 50 000 / 100 000 (§60, au-delà du minimum)
+`bin/load-test.php` exécuté avec succès aux deux volumes (dry-run, données supprimées après coup) :
+
+| Mesure | 50 000 | 100 000 |
+|---|---|---|
+| Import | 52,5 s (952/s) | 95,4 s (1048/s) |
+| Traitement (lots de 200) | 254,95 s (196 SMS/s) | 423,75 s (236 SMS/s) |
+| Premier lot → dernier lot | 0,46 s → 0,37 s | 0,5 s → 1,37 s |
+| Résultat | 50 000 réussis, 0 échec | 100 000 réussis, 0 échec |
+| Mémoire pic | — | 62 Mo |
+
+Débit par SMS plus faible qu'au test à 10 000 (§Phase 60 initiale, ~612 SMS/s) : attendu, `processRecipient()` fait plusieurs `UPDATE` non groupés par destinataire (aucune dégradation algorithmique — `EXPLAIN ANALYZE` confirme un temps d'exécution du claim de lot toujours sous la milliseconde à 100 000 lignes, `Index Scan` sur `messages_pkey`). Le léger allongement du dernier lot à 100 000 (1,37 s vs 0,5 s) reste largement dans une marge acceptable et n'indique aucune croissance quadratique. Un test au-delà (500 000+) grouperait probablement les `UPDATE` par lot pour gagner en débit, mais dépasse le besoin exprimé par le cahier des charges (§34 : "10 000 ; 50 000 ; 100 000").
+
+**Tests réalisés** :
+1. Suite PHPUnit complète → **77 tests, 159 assertions**, aucune régression.
+2. Vérification XSS en navigateur réel avec un payload injecté via import CSV → confirmé neutralisé (texte littéral, zéro exécution).
+3. Vérification responsive à 390px sur 5 écrans → zéro débordement horizontal, captures contrôlées visuellement.
+4. Vérification réseau (et non par délai fixe, peu fiable sur le serveur de dev PHP mono-thread partageant la même base que le test de charge en cours) des deux nouveaux filtres `only_with_phone`/`only_with_results` → comportement exact confirmé par inspection directe des réponses JSON.
+5. Deux exécutions réelles du test de charge (50 000 et 100 000), données nettoyées et vérifiées après coup.
+
+**Résultat** : les 5 points de finalisation demandés sont traités — accessibilité étendue à tous les écrans (formulaires + éléments dynamiques), une faille XSS stockée réelle éliminée au passage, design system documenté, responsive vérifié sans correctif nécessaire, sélection massive complète au sens du §17, et le moteur validé jusqu'à 100 000 destinataires sans dégradation ni échec.

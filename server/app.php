@@ -244,6 +244,8 @@ if (isset($_POST['test_sms_resultats'])) {
         'semestre' => trim($_POST['f_semestre'] ?? ''),
         'exclude_already_sent' => !empty($_POST['exclude_already_sent']),
         'exclude_ids' => array_filter(array_map('intval', explode(',', (string) ($_POST['excluded_ids'] ?? '')))),
+        'only_with_phone' => !empty($_POST['only_with_phone']),
+        'only_with_results' => !empty($_POST['only_with_results']),
     ];
     $sample = academicResults()->getSample($filters);
     $templateVars = $sample !== null ? \App\Services\AcademicResultsService::toTemplateVars($sample) : [];
@@ -275,6 +277,8 @@ if (isset($_POST['create_resultats_campagne'])) {
     $filters = $baseFilters + [
         'exclude_already_sent' => !empty($_POST['exclude_already_sent']),
         'exclude_ids' => $excludedIds,
+        'only_with_phone' => !empty($_POST['only_with_phone']),
+        'only_with_results' => !empty($_POST['only_with_results']),
     ];
 
     if ($nom === '' || $template === '') {

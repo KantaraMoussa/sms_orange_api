@@ -293,7 +293,7 @@ class AcademicResultsService
     }
 
     /**
-     * @param array{session_academique?:string,niveau?:string,classe?:string,programme?:string,semestre?:string,search?:string,exclude_already_sent?:bool,exclude_ids?:list<int>} $filters
+     * @param array{session_academique?:string,niveau?:string,classe?:string,programme?:string,semestre?:string,search?:string,exclude_already_sent?:bool,exclude_ids?:list<int>,only_with_phone?:bool,only_with_results?:bool} $filters
      */
     private function buildWhere(array $filters): array
     {
@@ -310,6 +310,18 @@ class AcademicResultsService
         if (!empty($filters['search'])) {
             $where[] = "(r.nom ILIKE :search OR r.prenom ILIKE :search OR r.matricule ILIKE :search)";
             $params[':search'] = '%' . $filters['search'] . '%';
+        }
+
+        // §17 : sélection massive avec filtres explicites. En pratique le téléphone
+        // est déjà toujours renseigné (rejeté à l'import sinon, colonne NOT NULL) —
+        // le filtre reste appliqué littéralement pour rester robuste si cette
+        // garantie change un jour, et pour respecter fidèlement le cahier des charges.
+        if (!empty($filters['only_with_phone'])) {
+            $where[] = "r.telephone IS NOT NULL AND r.telephone <> ''";
+        }
+
+        if (!empty($filters['only_with_results'])) {
+            $where[] = "r.moyenne IS NOT NULL AND r.moyenne <> ''";
         }
 
         if (!empty($filters['exclude_already_sent'])) {

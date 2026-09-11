@@ -10,6 +10,8 @@ php bin/create-user.php "Nom Complet" email@example.com "MotDePasseFort123" SUPE
 
 Rôles (`ADMIN`/`OPERATOR`/`VIEWER`/`SUPER_ADMIN`) : `server/app.php` (toutes les mutations) exige `SUPER_ADMIN`, `ADMIN` ou `OPERATOR` — un `VIEWER` reçoit un `403`.
 
+**Verrouillage anti brute-force** : après plusieurs échecs de connexion consécutifs, le compte est verrouillé temporairement (`utilisateurs.failed_attempts`/`locked_until`, migration `005_login_lockout.sql`) — voir `AuthService::attempt()`/`lockedForSeconds()`.
+
 **Compte de test livré pendant la refonte, à changer immédiatement** : `admin@test.local` / `TempPass1234`. Créer ton vrai compte puis supprimer celui-ci :
 ```sql
 DELETE FROM utilisateurs WHERE email = 'admin@test.local';
@@ -31,9 +33,16 @@ Tout est en `.env` (non versionné) — `DB_PASSWORD`, `ORANGE_CLIENT_ID`/`ORANG
 
 Le cache de token Orange (`storage/cache/orange_token.json`) contient un jeton d'accès temporaire — non versionné également.
 
+## XSS
+
+Échappement systématique côté serveur (`htmlspecialchars()`) sur toutes les valeurs affichées dans les vues PHP. Côté client, deux failles XSS réelles ont été trouvées et corrigées le 2026-09-11 (voir AUDIT.md, session 3 finale) :
+- `resultats.php` construisait le tableau d'étudiants via `innerHTML` + concaténation de chaînes avec des données issues d'un fichier importé (nom/prénom/matricule non échappés) — **XSS stocké** exploitable par n'importe quel fichier importé contenant du HTML/JS dans un champ texte. Corrigé en reconstruisant chaque ligne via le DOM (`createElement`/`textContent`), qui élimine la classe de bug plutôt que d'ajouter un échappement ponctuel.
+- `modeles.php` embarquait un `json_encode()` non échappé dans un attribut `onclick='...'` — un modèle contenant une apostrophe cassait l'attribut. Corrigé avec `htmlspecialchars(json_encode(...), ENT_QUOTES)`.
+
+Règle à respecter pour tout nouveau code JS qui affiche des données venant de la base ou d'un import utilisateur : construire le DOM via `createElement`/`textContent`/`setAttribute`, jamais via `innerHTML` + concaténation de chaînes.
+
 ## Ce qui n'est pas encore fait
 
-- Pas de limitation de tentatives de connexion (protection brute-force sur `app/login.php`).
 - Pas de "mot de passe oublié".
 - Pas de contrôle de rôle fin par action (ex. seul `ADMIN`+ peut annuler une campagne) — le contrôle actuel est au niveau fichier (`server/app.php` entier).
 - Pas de validation stricte du type MIME/de la taille des CSV uploadés (extension `.csv` seulement, contrôlée côté navigateur via `accept`, pas revérifiée côté serveur).

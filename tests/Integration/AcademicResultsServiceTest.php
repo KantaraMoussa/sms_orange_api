@@ -190,4 +190,33 @@ class AcademicResultsServiceTest extends TestCase
         $excluded = $this->service->getMatching(['search' => 'PHPUNITRES-11', 'exclude_already_sent' => true]);
         $this->assertCount(0, $excluded, 'exclude_already_sent must filter out students whose last campaign succeeded');
     }
+
+    public function testOnlyWithPhoneFilter(): void
+    {
+        // Le téléphone est NOT NULL en base (rejeté à l'import sinon) : le filtre
+        // doit rester un no-op sûr, jamais exclure une ligne valide (§17).
+        $path = $this->makeCsv([
+            ['PHPUNITRES-12', 'Avec', 'Telephone', '622111119', '2025-2026', 'L1', 'Droit', 'S1', '10', 'Passable', '1', '1'],
+        ]);
+        $this->service->importFile($path, 'csv', 'phpunit');
+
+        $rows = $this->service->getMatching(['search' => 'PHPUNITRES-12', 'only_with_phone' => true]);
+
+        $this->assertCount(1, $rows);
+    }
+
+    public function testOnlyWithResultsFilterExcludesEmptyMoyenne(): void
+    {
+        $path = $this->makeCsv([
+            ['PHPUNITRES-13', 'Avec', 'Moyenne', '622111120', '2025-2026', 'L1', 'Droit', 'S1', '14.00', 'Bien', '1', '1'],
+            ['PHPUNITRES-14', 'Sans', 'Moyenne', '622111121', '2025-2026', 'L1', 'Droit', 'S1', '', '', '', ''],
+        ]);
+        $this->service->importFile($path, 'csv', 'phpunit');
+
+        $withResults = $this->service->getMatching(['search' => 'PHPUNITRES-1', 'only_with_results' => true]);
+        $matricules = array_column($withResults, 'matricule');
+
+        $this->assertContains('PHPUNITRES-13', $matricules);
+        $this->assertNotContains('PHPUNITRES-14', $matricules);
+    }
 }

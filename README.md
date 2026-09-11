@@ -29,6 +29,7 @@ Puis ouvrir `http://localhost/sms_orange/app/login.php`.
 ## Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — organisation du code, moteur de campagnes.
+- [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) — couleurs, composants, conventions UI/accessibilité.
 - [DATABASE.md](DATABASE.md) — schéma, migrations.
 - [ORANGE_API.md](ORANGE_API.md) — intégration Orange, gestion du token, erreurs.
 - [SECURITY.md](SECURITY.md) — authentification, rôles, CSRF, secrets.

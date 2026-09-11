@@ -25,6 +25,8 @@ $filters = [
     'semestre' => trim($_GET['semestre'] ?? ''),
     'search' => trim($_GET['search'] ?? ''),
     'exclude_already_sent' => !empty($_GET['exclude_already_sent']),
+    'only_with_phone' => !empty($_GET['only_with_phone']),
+    'only_with_results' => !empty($_GET['only_with_results']),
 ];
 
 $page = max(1, (int) ($_GET['page'] ?? 1));

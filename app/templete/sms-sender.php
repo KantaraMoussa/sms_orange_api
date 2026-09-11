@@ -51,10 +51,12 @@
                 <form action="../server/app.php" method="post" enctype="multipart/form-data">
                     <?= csrf_field() ?>
                     <div class="form-group mb-3">
-                        <input type="text" class="form-control" name="number" id="number" required value="+224"  required>
+                        <label for="number" class="visually-hidden">Numéro de téléphone</label>
+                        <input type="text" class="form-control" name="number" id="number" required value="+224">
                         <div class="form-text">Numéro ou expéditeur validé chez Orange</div>
                     </div>
                     <div class="form-group mb-3">
+                        <label for="message" class="visually-hidden">Message</label>
                         <textarea class="form-control border-0 bg-transparent" name="message" id="message" rows="4" placeholder="Tapez votre message...">📢 ALERT UGLCS-SCOLARITE</textarea>
                         <div class="form-text">Votre Message ici</div>
                     </div>

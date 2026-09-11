@@ -153,8 +153,9 @@ require_once('../server/infosAPI.php');
                         <div class="dropdown-menu pc-h-dropdown drp-search">
                             <form class="px-3">
                                 <div class="form-group mb-0 d-flex align-items-center">
-                                    <input type="search" class="form-control border-0 shadow-none" placeholder="Search here. . ." />
-                                    <button class="btn btn-light-secondary btn-search">Search</button>
+                                    <label for="header-search" class="visually-hidden">Rechercher</label>
+                                    <input type="search" id="header-search" class="form-control border-0 shadow-none" placeholder="Search here. . ." />
+                                    <button type="submit" class="btn btn-light-secondary btn-search">Search</button>
                                 </div>
                             </form>
                         </div>
