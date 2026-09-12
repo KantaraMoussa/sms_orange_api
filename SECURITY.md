@@ -41,6 +41,10 @@ Le cache de token Orange (`storage/cache/orange_token.json`) contient un jeton d
 
 Règle à respecter pour tout nouveau code JS qui affiche des données venant de la base ou d'un import utilisateur : construire le DOM via `createElement`/`textContent`/`setAttribute`, jamais via `innerHTML` + concaténation de chaînes.
 
+## Redirections (`redirectBack()`)
+
+Bug réel trouvé le 2026-09-12 : la comparaison d'hôte de `redirectBack()` (protection contre l'open-redirect, §5.6 de l'audit initial) utilisait `parse_url($referer, PHP_URL_HOST)`, qui ne renvoie jamais le port — alors que `$_SERVER['HTTP_HOST']` l'inclut dès qu'il n'est pas 80/443. Sur tout déploiement avec un port non standard, la comparaison échouait donc systématiquement et renvoyait vers le fallback au lieu de la bonne page (perte du `?page=...`). Corrigé en comparant l'autorité complète (hôte + port). La protection contre les Referer forgés vers un domaine externe reste intacte (voir `tests/Unit/RedirectBackTest.php`).
+
 ## Ce qui n'est pas encore fait
 
 - Pas de "mot de passe oublié".

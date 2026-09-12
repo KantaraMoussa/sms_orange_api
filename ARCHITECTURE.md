@@ -36,6 +36,7 @@ src/Services/           Classes avec une responsabilité claire
   SmsCounterService.php      Calcul du nombre de SMS (encodage GSM-7/UCS-2, segments)
   ActivityLogger.php         Journal d'activité / audit trail (qui a fait quoi, quand)
   SmsTemplateService.php     Bibliothèque de modèles SMS réutilisables (CRUD, catégories)
+  ContactService.php         Contacts/Groupes (§22-24) : CRUD, appartenance, import CSV/Excel
 
 bin/                    Scripts CLI
   create-user.php          Provisionne un compte (pas d'inscription publique)

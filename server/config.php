@@ -81,16 +81,33 @@ function detailCampagne($campagneId)
  * avec certains navigateurs/proxys) et l'open-redirect si un Referer forgé
  * pointait vers un domaine externe (audit §5.6).
  */
+/**
+ * Logique pure de redirectBack(), extraite pour être testable sans dépendre
+ * de header() (silencieusement ignoré en CLI, donc invérifiable autrement).
+ *
+ * Bug réel trouvé le 2026-09-12 en testant sur le serveur de dev PHP (port
+ * non standard, ex. :8899) : parse_url(..., PHP_URL_HOST) ne renvoie JAMAIS
+ * le port, alors que HTTP_HOST l'inclut dès que ce n'est pas le port par
+ * défaut (80/443). La comparaison échouait donc systématiquement hors
+ * Apache:80, renvoyant toujours vers le fallback (perte du ?page=...).
+ */
+function resolveRedirectTarget(string $referer, string $host, string $fallback): string
+{
+    $refererHost = parse_url($referer, PHP_URL_HOST);
+    $refererPort = parse_url($referer, PHP_URL_PORT);
+    $refererAuthority = $refererPort !== null ? "$refererHost:$refererPort" : $refererHost;
+
+    if ($referer !== '' && $host !== '' && $refererAuthority === $host) {
+        return $referer;
+    }
+
+    return $fallback;
+}
+
 function redirectBack(string $fallback = '../app/index.php'): void
 {
-    $referer = $_SERVER['HTTP_REFERER'] ?? '';
-    $host = $_SERVER['HTTP_HOST'] ?? '';
-
-    if ($referer !== '' && $host !== '' && parse_url($referer, PHP_URL_HOST) === $host) {
-        header("Location: $referer");
-    } else {
-        header("Location: $fallback");
-    }
+    $target = resolveRedirectTarget($_SERVER['HTTP_REFERER'] ?? '', $_SERVER['HTTP_HOST'] ?? '', $fallback);
+    header("Location: $target");
 }
 
 // -- Statistiques réelles pour le tableau de bord (remplacent les KPI/graphiques

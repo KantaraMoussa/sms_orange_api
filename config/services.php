@@ -9,6 +9,7 @@ use App\Services\CampaignQueueService;
 use App\Services\AcademicResultsService;
 use App\Services\ActivityLogger;
 use App\Services\SmsTemplateService;
+use App\Services\ContactService;
 
 function campaignQueue(): CampaignQueueService
 {
@@ -49,6 +50,17 @@ function smsTemplates(): SmsTemplateService
 
     if ($service === null) {
         $service = new SmsTemplateService(db());
+    }
+
+    return $service;
+}
+
+function contacts(): ContactService
+{
+    static $service = null;
+
+    if ($service === null) {
+        $service = new ContactService(db());
     }
 
     return $service;

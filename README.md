@@ -5,6 +5,7 @@ Plateforme d'envoi de campagnes SMS et de messages administratifs, via l'API Ora
 ## Fonctionnalités
 
 - **Résultats académiques** : import structuré (Excel/CSV) des résultats d'étudiants (matricule, session, niveau, classe, programme, semestre, moyenne, mention, rang...), rapport d'import détaillé, tableau d'étudiants sélectionnables (recherche, exclusion individuelle ou des étudiants déjà envoyés), modèle de message avec variables dynamiques, aperçu réel + calcul du nombre de SMS, SMS de test, vérification du solde avant création, génération d'une campagne consolidée.
+- **Contacts/Groupes** : gestion des contacts (CRUD, import CSV/Excel avec rapport détaillé), groupes avec appartenance, envoi d'une campagne à tout un groupe.
 - **Modèles SMS** : bibliothèque réutilisable (créer/modifier/dupliquer/archiver), chargeable directement dans l'écran Résultats académiques.
 - **Campagnes** : création, import de destinataires (fichier Excel : nom, prénom, matricule, téléphone, message), lancement en file d'attente par lots, suivi de progression en temps réel, pause/reprise/annulation, réessai des échecs.
 - **Dashboard** : solde SMS Orange en direct, statistiques réelles, 4 graphiques (évolution des envois, répartition, performance des campagnes, taux de réussite).

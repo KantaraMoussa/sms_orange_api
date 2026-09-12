@@ -81,6 +81,21 @@ require_once('../server/infosAPI.php');
                             <span class="pc-mtext">Envoyer les résultats</span></a></li>
 
                     <li class="pc-item pc-caption">
+                        <label>Contacts</label>
+                        <i class="ph ph-address-book"></i>
+                    </li>
+                    <li class="pc-item"><a href="?page=contacts" class="pc-link">
+                            <span class="pc-micon">
+                                <i class="ph ph-address-book"></i>
+                            </span>
+                            <span class="pc-mtext">Liste des contacts</span></a></li>
+                    <li class="pc-item"><a href="?page=groupe" class="pc-link">
+                            <span class="pc-micon">
+                                <i class="ph ph-users-three"></i>
+                            </span>
+                            <span class="pc-mtext">Groupes</span></a></li>
+
+                    <li class="pc-item pc-caption">
                         <label>Gestion des Messages</label>
                         <i class="ph ph-suitcase"></i>
                     </li>
@@ -261,6 +276,12 @@ require_once('../server/infosAPI.php');
                     require_once('./templete/dashboard.php');
                 } else   if ($_GET['page'] == "resultats") {
                     require_once('./templete/resultats.php');
+                } else   if ($_GET['page'] == "contacts") {
+                    require_once('./templete/contacts.php');
+                } else   if ($_GET['page'] == "groupe") {
+                    require_once('./templete/groupe.php');
+                } else   if ($_GET['page'] == "detail-groupe") {
+                    require_once('./templete/detail-groupe.php');
                 } else   if ($_GET['page'] == "campgagne") {
                      if (isset($_GET['details'])) {
                         require_once('./templete/detail-campagne.php');
@@ -406,7 +427,15 @@ $(document).ready(function() {
         }
     };
 
-    if ($('#groupesTable').length) {
+    // Garde ajoutée le 2026-09-12 : une ligne "Aucune donnée" manuelle (un seul
+    // <td colspan="N"> pour tout le tableau) casse l'initialisation de DataTables
+    // ("Cannot set properties of undefined (setting '_DT_CellIndex')") — DataTables
+    // essaie d'indexer autant de cellules que de colonnes déclarées dans <thead>
+    // sur CHAQUE ligne, y compris cette ligne factice qui n'en a qu'une seule.
+    // Bug latent depuis toujours, resté invisible tant que les tableaux testés
+    // avaient au moins une vraie ligne de données ; trouvé en testant le nouveau
+    // module Contacts/Groupes avec un groupe/une recherche sans résultat.
+    if ($('#groupesTable').length && $('#groupesTable tbody td[colspan]').length === 0) {
         $('#groupesTable').DataTable({
             dom: 'Bfrtip', // bouton au-dessus du tableau
             buttons: [

@@ -54,6 +54,18 @@ Table présente depuis l'origine, vide jusqu'à la Phase 37/38 (authentification
 ### `activity_logs`
 Journal d'activité / piste d'audit (§35/§64) : `user_nom`, `action` (connexion/deconnexion/creation_campagne/lancement_campagne/pause_campagne/reprise_campagne/annulation_campagne/retry_campagne/import_resultats/creation_campagne_resultats/creation_modele/modification_modele/duplication_modele/archivage_modele), `campagne_id` (FK, nullable), `details`, `created_at`. Alimenté par `ActivityLogger`, consulté depuis `?page=journal`.
 
+### `contacts_v2`, `groupes_v2`, `groupe_contacts_v2`, `imports_contacts`
+Module Contacts/Groupes (§22-24), recréé le 2026-09-12 après une suppression (§004) puis une nouvelle demande explicites de l'utilisateur — schéma dédié (suffixe `_v2`) plutôt que de réutiliser les anciens noms `contacts`/`groupes`, pour ne jamais confondre avec l'historique de suppression documenté dans `archive/README.md`.
+
+| Table | Colonnes clés |
+|---|---|
+| `contacts_v2` | `nom`, `prenom`, `telephone` (unique, normalisé `+224XXXXXXXXX`), `telephone_brut`, `email`, `statut` |
+| `groupes_v2` | `nom`, `description`, `created_by` |
+| `groupe_contacts_v2` | `(groupe_id, contact_id)` — clé primaire composite, `ON DELETE CASCADE` des deux côtés |
+| `imports_contacts` | rapport d'import (même modèle que `imports_resultats`) |
+
+Un contact est unique par téléphone (index unique) : un import ou un ajout avec un numéro déjà connu **met à jour** le contact existant (nom/prénom/email) plutôt que de le dupliquer. Un envoi à un groupe (`send_to_group`) crée une campagne via `CampaignQueueService`, comme n'importe quelle autre campagne — aucune logique d'envoi séparée.
+
 ### `sms_templates`
 Bibliothèque de modèles SMS réutilisables (§25) : `nom`, `categorie` (resultats_academiques/rappel/information/notification/absence/paiement), `contenu` (variables `{{...}}` supportées, rendues par `MessageTemplateService`), `archive`, `created_by`, `created_at`, `updated_at`. Gérée depuis `?page=modeles` ; chargeable directement dans l'éditeur de message de `?page=resultats`.
 
@@ -101,7 +113,8 @@ Applique dans l'ordre alphabétique tout fichier `database/migrations/*.sql` non
 | `006_resultats_derniere_campagne.sql` | Additif : `resultats_academiques.derniere_campagne_id` (FK `campagne`), pour le statut "déjà envoyé" (§17). |
 | `007_activity_logs.sql` | Additif : crée `activity_logs` (journal d'activité / audit trail, §35/§64). |
 | `008_sms_templates.sql` | Additif : crée `sms_templates` (bibliothèque de modèles SMS réutilisables, §25). |
+| `009_contacts_groups.sql` | Additif : recrée `contacts_v2`/`groupes_v2`/`groupe_contacts_v2`/`imports_contacts` (§22-24). |
 
 > **Note** : les deux migrations ci-dessus portent le même préfixe `005_` — créées en parallèle par deux sessions de travail différentes le même jour. Sans conséquence pratique : `schema_migrations` suit chaque fichier par son nom complet (pas seulement le préfixe), les deux ont été appliquées sans conflit (tables distinctes), et `database/migrate.php` les trie par ordre alphabétique complet. Laissé tel quel plutôt que renommé, pour ne pas risquer de perturber le suivi déjà enregistré sur la base de production.
 
-Pour une nouvelle migration : créer `009_....sql` (préfixe numérique croissant), relancer `php database/migrate.php`.
+Pour une nouvelle migration : créer `010_....sql` (préfixe numérique croissant), relancer `php database/migrate.php`.

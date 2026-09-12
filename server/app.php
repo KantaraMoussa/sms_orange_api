@@ -421,3 +421,166 @@ if (isset($_POST['unarchive_template'])) {
     header("Location: ../app/index.php?page=modeles");
     exit;
 }
+
+// ------------------------------------------------------------------
+// Contacts / Groupes (cahier des charges V2.0, §22-24). Recréé le
+// 2026-09-12 sur un schéma dédié (contacts_v2/groupes_v2), après une
+// suppression puis une nouvelle demande explicites de l'utilisateur
+// (voir AUDIT.md pour l'historique complet des deux décisions).
+// ------------------------------------------------------------------
+
+if (isset($_POST['create_contact'])) {
+    $nom = trim($_POST['contact_nom'] ?? '');
+    $prenom = trim($_POST['contact_prenom'] ?? '');
+    $telephone = trim($_POST['contact_telephone'] ?? '');
+    $email = trim($_POST['contact_email'] ?? '');
+
+    try {
+        $id = contacts()->createContact($nom, $prenom, $telephone, $email);
+        activityLog()->log('creation_contact', null, $actor, "$prenom $nom");
+        $_SESSION['class'] = "alert alert-success";
+        $_SESSION['message'] = "✅ Contact ajouté.";
+    } catch (Exception $e) {
+        $_SESSION['class'] = "alert alert-danger";
+        $_SESSION['message'] = "❌ " . $e->getMessage();
+    }
+    redirectBack();
+    exit;
+}
+
+if (isset($_POST['delete_contact'])) {
+    $id = (int) ($_POST['contact_id'] ?? 0);
+    contacts()->deleteContact($id);
+    activityLog()->log('suppression_contact', null, $actor, "contact #$id");
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "✅ Contact supprimé.";
+    redirectBack();
+    exit;
+}
+
+if (isset($_POST['import_contacts']) && isset($_FILES['contactsFile'])) {
+    $file = $_FILES['contactsFile'];
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    $maxSize = 15 * 1024 * 1024;
+    $groupeId = !empty($_POST['groupe_id']) ? (int) $_POST['groupe_id'] : null;
+
+    if ($file['error'] !== UPLOAD_ERR_OK || !in_array($ext, ['xlsx', 'xls', 'csv'], true) || $file['size'] > $maxSize) {
+        $_SESSION['class'] = "alert alert-danger";
+        $_SESSION['message'] = "❌ Fichier invalide : un .xlsx, .xls ou .csv de moins de 15 Mo est attendu.";
+        redirectBack();
+        exit;
+    }
+
+    try {
+        $report = contacts()->importFile($file['tmp_name'], $ext, $groupeId, $actor);
+        activityLog()->log('import_contacts', null, $actor, "{$report['valides']} valide(s)/{$report['invalides']} invalide(s)/{$report['doublons']} doublon(s)");
+        $_SESSION['class'] = "alert alert-success";
+        $_SESSION['message'] = "✅ Import terminé ({$report['total']} ligne(s) analysée(s)) : {$report['valides']} valide(s), {$report['invalides']} invalide(s), {$report['doublons']} doublon(s).";
+    } catch (Exception $e) {
+        $_SESSION['class'] = "alert alert-danger";
+        $_SESSION['message'] = "❌ Échec de l'import : " . $e->getMessage();
+    }
+    if ($groupeId !== null) {
+        header("Location: ../app/index.php?page=detail-groupe&id=$groupeId");
+    } else {
+        header("Location: ../app/index.php?page=contacts");
+    }
+    exit;
+}
+
+if (isset($_POST['create_group'])) {
+    $nom = trim($_POST['groupe_nom'] ?? '');
+    $description = trim($_POST['groupe_description'] ?? '');
+
+    if ($nom === '') {
+        $_SESSION['class'] = "alert alert-warning";
+        $_SESSION['message'] = "Le nom du groupe est obligatoire.";
+        redirectBack();
+        exit;
+    }
+
+    $id = contacts()->createGroup($nom, $description, $actor);
+    activityLog()->log('creation_groupe', null, $actor, $nom);
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "✅ Groupe « $nom » créé.";
+    header("Location: ../app/index.php?page=groupe");
+    exit;
+}
+
+if (isset($_POST['delete_group'])) {
+    $id = (int) ($_POST['groupe_id'] ?? 0);
+    contacts()->deleteGroup($id);
+    activityLog()->log('suppression_groupe', null, $actor, "groupe #$id");
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "✅ Groupe supprimé.";
+    header("Location: ../app/index.php?page=groupe");
+    exit;
+}
+
+if (isset($_POST['add_contact_to_group'])) {
+    $groupeId = (int) ($_POST['groupe_id'] ?? 0);
+    $contactId = (int) ($_POST['contact_id'] ?? 0);
+    contacts()->addContactToGroup($groupeId, $contactId);
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "✅ Contact ajouté au groupe.";
+    header("Location: ../app/index.php?page=detail-groupe&id=$groupeId");
+    exit;
+}
+
+if (isset($_POST['remove_contact_from_group'])) {
+    $groupeId = (int) ($_POST['groupe_id'] ?? 0);
+    $contactId = (int) ($_POST['contact_id'] ?? 0);
+    contacts()->removeContactFromGroup($groupeId, $contactId);
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "✅ Contact retiré du groupe.";
+    header("Location: ../app/index.php?page=detail-groupe&id=$groupeId");
+    exit;
+}
+
+// Envoie une campagne à tous les contacts d'un groupe (§24) — réutilise
+// entièrement le moteur de campagnes existant, comme les résultats académiques.
+if (isset($_POST['send_to_group'])) {
+    $groupeId = (int) ($_POST['groupe_id'] ?? 0);
+    $message = trim($_POST['group_message'] ?? '');
+    $group = contacts()->findGroup($groupeId);
+
+    if (!$group || $message === '') {
+        $_SESSION['class'] = "alert alert-warning";
+        $_SESSION['message'] = "Groupe introuvable ou message vide.";
+        redirectBack();
+        exit;
+    }
+
+    $groupContacts = contacts()->allContacts($groupeId);
+    if (empty($groupContacts)) {
+        $_SESSION['class'] = "alert alert-warning";
+        $_SESSION['message'] = "Ce groupe ne contient aucun contact.";
+        redirectBack();
+        exit;
+    }
+
+    $campagneId = campaignQueue()->createCampaign(
+        'Envoi au groupe ' . $group['nom'],
+        'Campagne générée depuis le groupe « ' . $group['nom'] . ' »',
+        'contacts',
+        $actor,
+        50
+    );
+
+    $recipients = [];
+    foreach ($groupContacts as $c) {
+        $recipients[] = [
+            'destinataire' => $c['telephone'],
+            'contenu' => $message,
+            'nom' => $c['nom'],
+            'prenom' => $c['prenom'],
+        ];
+    }
+    $result = campaignQueue()->addRecipients($campagneId, $recipients);
+    activityLog()->log('creation_campagne_groupe', $campagneId, $actor, $group['nom'] . ' — ' . count($groupContacts) . ' contact(s)');
+
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "✅ Campagne créée pour le groupe « {$group['nom']} » : {$result['added']} destinataire(s). Vérifiez le journal puis lancez l'envoi.";
+    header("Location: ../app/index.php?page=campgagne&details=$campagneId");
+    exit;
+}

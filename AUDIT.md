@@ -710,3 +710,30 @@ Débit par SMS plus faible qu'au test à 10 000 (§Phase 60 initiale, ~612 SMS/s
 5. Deux exécutions réelles du test de charge (50 000 et 100 000), données nettoyées et vérifiées après coup.
 
 **Résultat** : les 5 points de finalisation demandés sont traités — accessibilité étendue à tous les écrans (formulaires + éléments dynamiques), une faille XSS stockée réelle éliminée au passage, design system documenté, responsive vérifié sans correctif nécessaire, sélection massive complète au sens du §17, et le moteur validé jusqu'à 100 000 destinataires sans dégradation ni échec.
+
+## Suite session 3 (2026-09-12) : module Contacts/Groupes recréé (§22-24), deux bugs systémiques trouvés et corrigés
+
+**Contexte** : l'utilisateur a explicitement redemandé les trois derniers écarts restants, dont le module Contacts/Groupes/Import CSV générique — retiré le 2026-09-08 à sa demande explicite, puis redemandé le 2026-09-12 après avoir vu ce rappel (« le cahier des charges les demande, mais tu avais toi-même demandé leur suppression »), qui constitue une confirmation informée plutôt qu'une simple ambiguïté. Reconstruit proprement sur un schéma dédié (`contacts_v2`/`groupes_v2`/`groupe_contacts_v2`) plutôt que de restaurer l'ancien code archivé, qui fonctionnait sur des données 100 % factices (voir `archive/README.md`).
+
+**Fichiers créés** :
+- `database/migrations/009_contacts_groups.sql`.
+- `src/Services/ContactService.php` — CRUD contacts/groupes, appartenance, import Excel/CSV avec rapport détaillé (même modèle que `AcademicResultsService` : alias de colonnes, normalisation téléphone, déduplication, upsert par téléphone).
+- `app/templete/contacts.php`, `app/templete/groupe.php`, `app/templete/detail-groupe.php`.
+- `server/contacts_export_errors.php` (export CSV des erreurs d'import, même modèle que `resultats_export_errors.php`).
+- `tests/Integration/ContactServiceTest.php` (6 tests), `tests/Unit/RedirectBackTest.php` (5 tests, voir bug ci-dessous).
+
+**Fichiers modifiés (additif)** : `config/services.php` (`contacts()`), `server/app.php` (9 nouveaux handlers : `create_contact`, `delete_contact`, `import_contacts`, `create_group`, `delete_group`, `add_contact_to_group`, `remove_contact_from_group`, `send_to_group` — ce dernier crée une campagne via `campaignQueue()`, comme les résultats académiques, sans dupliquer de logique d'envoi), `app/index.php` (menu + routes `contacts`/`groupe`/`detail-groupe`).
+
+### 🐛 Bug réel n°1 : `redirectBack()` perdait `?page=...` sur un port non standard
+Trouvé en testant la création d'un contact en navigateur réel : après un `redirectBack()` réussi, la page atterrissait sur `index.php` **sans** paramètre, affichant la 404 au lieu du flash de succès attendu sur `?page=contacts`. Cause : `parse_url($referer, PHP_URL_HOST)` ne renvoie jamais le port, alors que `$_SERVER['HTTP_HOST']` l'inclut dès qu'il diffère de 80/443 (le serveur de dev PHP tourne sur `:8899`). La comparaison hôte échouait donc systématiquement hors Apache:80, et `redirectBack()` retombait toujours sur son fallback. **Ce bug touchait potentiellement tous les handlers utilisant `redirectBack()`** (envoi simple, tests SMS, contacts...) sur tout déploiement à port non standard — resté invisible car les sessions précédentes testaient principalement via Apache:80. Corrigé en comparant l'autorité complète (hôte + port) ; logique extraite dans `resolveRedirectTarget()` pour être testable sans dépendre de `header()`. 5 tests de régression.
+
+### 🐛 Bug réel n°2 : DataTables cassait sur tout tableau vide de l'application
+Trouvé en testant un groupe fraîchement créé (0 membre) : erreur JS `Cannot set properties of undefined (setting '_DT_CellIndex')`, déjà rencontrée et documentée (session 2, "Correctif DataTables") mais dont la cause avait alors été attribuée uniquement au fichier i18n distant bloqué par CORS. **Cause réelle, plus large** : DataTables tente d'indexer autant de cellules que de colonnes déclarées dans `<thead>` sur *chaque* ligne du corps — la ligne "Aucune donnée" codée à la main dans les vues (`<tr><td colspan="N">Aucun ...</td></tr>`, un seul `<td>` réel) casse cette hypothèse. **Reproduit indépendamment sur `contacts.php` (recherche sans résultat) et `detail-groupe.php` (groupe vide)** : ce n'est donc pas un bug du nouveau module, mais un défaut latent de l'initialisation globale de DataTables (`app/index.php`), qui touchait déjà silencieusement toute page de l'application affichant un tableau vide (campagnes, rapports, messages...) — simplement jamais déclenché lors des tests précédents car une donnée de test était toujours présente. Corrigé par une garde générale : `$('#groupesTable tbody td[colspan]').length === 0` avant d'initialiser DataTables — si la ligne "Aucune donnée" est présente, DataTables n'est pas initialisé (le tableau reste un `<table>` HTML simple, ce qui est de toute façon suffisant pour zéro ligne).
+
+**Tests réalisés** :
+1. Suite PHPUnit complète → **88 tests, 180 assertions**, aucune régression.
+2. Parcours navigateur réel de bout en bout (Playwright) : création d'un contact → apparition dans la liste → création d'un groupe → ajout du contact au groupe → création d'une campagne depuis le groupe → arrivée correcte sur l'écran de détail de campagne, **zéro erreur console/JS** après les deux correctifs (contre 1 à 3 erreurs par exécution avant).
+3. Reproduction isolée et confirmation des deux bugs sur des scénarios minimaux avant correctif, puis re-vérification après correctif sur les mêmes scénarios.
+4. Données de test nettoyées après vérification.
+
+**Résultat** : le module Contacts/Groupes/Import CSV (§22-24) est fonctionnel de bout en bout et intégré au moteur de campagnes existant ; deux bugs systémiques préexistants et invisibles jusqu'ici (redirection post-mutation sur port non standard, DataTables sur tableau vide) sont corrigés pour l'ensemble de l'application, pas seulement le nouveau module.
