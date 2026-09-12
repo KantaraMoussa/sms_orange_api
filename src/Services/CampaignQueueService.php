@@ -365,7 +365,7 @@ class CampaignQueueService
         $this->pdo->beginTransaction();
 
         $stmt = $this->pdo->prepare(
-            "SELECT id, destinataire, contenu, tentative_count
+            "SELECT id, destinataire, contenu, tentative_count, organization_id
              FROM messages
              WHERE campagne_id = :id AND statut = 'en_attente'
              ORDER BY id
@@ -414,6 +414,22 @@ class CampaignQueueService
 
             $this->pdo->prepare("UPDATE campagne SET nombre_envoyes = nombre_envoyes + 1 WHERE id = :id")
                 ->execute([':id' => $campaignId]);
+
+            // Crédits (Phase 2) : débité seulement pour un envoi réel réussi,
+            // jamais en dry_run (aucun SMS réel, aucun coût réel) et jamais
+            // pour un échec (voir la branche catch). Le solde interne par
+            // organisation existe pour un motif distinct du solde Orange
+            // partagé : plusieurs organisations envoient via le même compte
+            // Orange (§59), rien d'autre n'empêcherait l'une d'épuiser le
+            // solde partagé au détriment des autres.
+            if (!$dryRun && isset($recipient['organization_id'])) {
+                $credits = new CreditService($this->pdo, (int) $recipient['organization_id']);
+                $credits->recordConsumption(
+                    SmsCounterService::analyze($message)['segments'],
+                    "Campagne #$campaignId",
+                    $campaignId
+                );
+            }
         } catch (Exception $e) {
             [$code, $retryable] = SmsErrorClassifier::classify($e);
             $attempts = (int) $recipient['tentative_count'] + 1;

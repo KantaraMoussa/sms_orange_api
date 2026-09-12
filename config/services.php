@@ -12,6 +12,7 @@ use App\Services\ContactService;
 use App\Services\NotificationService;
 use App\Services\OrganizationService;
 use App\Services\SegmentService;
+use App\Services\CreditService;
 
 function campaignQueue(): CampaignQueueService
 {
@@ -91,6 +92,17 @@ function segments(): SegmentService
 
     if ($service === null) {
         $service = new SegmentService(db(), auth()->organizationId());
+    }
+
+    return $service;
+}
+
+function credits(): CreditService
+{
+    static $service = null;
+
+    if ($service === null) {
+        $service = new CreditService(db(), auth()->organizationId());
     }
 
     return $service;

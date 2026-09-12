@@ -40,7 +40,12 @@ if (($isDraft && $hasRecipients) || $isScheduled) {
     }
 }
 $availableUnits = $balanceInfo['availableUnits'] ?? null;
-$balanceSufficient = $availableUnits !== null && $smsNeeded !== null ? ((int) $availableUnits >= $smsNeeded) : null;
+$orgCreditsBalance = $smsNeeded !== null ? credits()->balance() : null;
+// §20/§34 : les deux soldes doivent suffire — Orange (partagé entre
+// organisations, §59) ET le crédit interne de cette organisation.
+$balanceSufficient = $availableUnits !== null && $smsNeeded !== null
+    ? ((int) $availableUnits >= $smsNeeded && $orgCreditsBalance >= $smsNeeded)
+    : null;
 
 if ($isDraft && !$hasRecipients) {
     $groupesDisponibles = contacts()->allGroups();
@@ -166,12 +171,13 @@ if ($isDraft && $hasRecipients) {
                             <strong>Avant de lancer :</strong>
                             <?= (int) $campagne['total_destinataires'] ?> destinataire(s) ·
                             <strong><?= (int) $smsNeeded ?> SMS estimé(s)</strong> ·
-                            solde disponible :
+                            solde Orange disponible :
                             <?php if ($balanceError): ?>
                                 <span class="text-muted">indisponible (<?= htmlspecialchars($balanceError) ?>)</span>
                             <?php else: ?>
                                 <strong><?= (int) $availableUnits ?></strong>
                             <?php endif; ?>
+                            · crédits organisation : <strong><?= number_format((int) $orgCreditsBalance, 0, ',', ' ') ?></strong>
                             <?php if ($balanceSufficient === false): ?>
                                 <div class="mt-1">❌ Solde SMS insuffisant pour cette campagne.</div>
                             <?php endif; ?>

@@ -30,6 +30,20 @@ class OrganizationService
     }
 
     /**
+     * Liste TOUTES les organisations de la plateforme, volontairement non
+     * scopée (contrairement aux autres Services) — réservée aux usages
+     * plateforme (SUPER_ADMIN, ex. sélection d'une organisation à recharger
+     * en crédits, cahier des charges §34) et jamais exposée aux rôles
+     * organisation, qui ne doivent connaître que la leur.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function all(): array
+    {
+        return $this->pdo->query('SELECT * FROM organizations ORDER BY nom')->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
      * @param array{nom: string, secteur?: string, telephone?: string, email?: string,
      *              adresse?: string, pays?: string, fuseau_horaire?: string,
      *              devise?: string, sender_name?: string, logo_url?: string} $data

@@ -98,6 +98,13 @@ function estimateSmsNeeded(int $campagneId): int
  * planification (server/app.php) — les deux engagent la campagne à être
  * envoyée, donc les deux doivent être bloqués si le solde ne suit pas.
  */
+/**
+ * Deux soldes distincts sont vérifiés (§20, §34) : le solde Orange réel
+ * (partagé entre toutes les organisations, §59) et le solde de crédits
+ * interne à l'organisation de la campagne — sans ce second contrôle, rien
+ * n'empêcherait une organisation d'épuiser le solde Orange partagé au
+ * détriment des autres.
+ */
 function insufficientBalanceMessage(int $campagneId): ?string
 {
     $needed = estimateSmsNeeded($campagneId);
@@ -105,6 +112,12 @@ function insufficientBalanceMessage(int $campagneId): ?string
 
     if ($needed > $available) {
         return "❌ Solde SMS insuffisant pour cette campagne : $needed SMS nécessaires, $available disponible(s).";
+    }
+
+    $campagne = getSingleCampagne($campagneId);
+    $credits = new \App\Services\CreditService(PDO(), (int) $campagne['organization_id']);
+    if (!$credits->hasSufficientBalance($needed)) {
+        return "❌ Crédits insuffisants pour cette campagne : $needed nécessaire(s), " . $credits->balance() . " disponible(s). Contactez un administrateur pour recharger votre organisation.";
     }
 
     return null;

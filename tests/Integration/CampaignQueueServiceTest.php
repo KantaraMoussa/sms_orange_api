@@ -176,6 +176,27 @@ class CampaignQueueServiceTest extends TestCase
         $this->assertSame('echec', $stmt->fetchColumn(), 'a definitive failure must stay failed, never silently retried');
     }
 
+    public function testProcessRecipientInDryRunNeverDebitsCredits(): void
+    {
+        $creditsService = new \App\Services\CreditService($this->pdo, 1);
+        $before = $creditsService->balance();
+
+        $id = $this->makeCampaign('PHPUnit dry-run credits test');
+        $this->queue->addRecipients($id, $this->fakeRows(2));
+        $batch = $this->queue->claimBatch($id, 50);
+        foreach ($batch as $recipient) {
+            $this->queue->processRecipient($recipient, $id, dryRun: true);
+        }
+
+        // dry_run n'appelle jamais l'API Orange réelle : aucun coût réel n'a
+        // été engagé, donc aucun débit ne doit être enregistré (voir le
+        // commentaire dans CampaignQueueService::processRecipient()).
+        $this->assertSame($before, $creditsService->balance(), 'dry_run must never touch the organization\'s credit balance');
+        $this->assertEmpty(
+            array_filter($creditsService->history(), fn($h) => $h['campagne_nom'] === 'PHPUnit dry-run credits test')
+        );
+    }
+
     public function testEstimateSmsNeededSumsSegmentsNotJustRecipientCount(): void
     {
         $id = $this->makeCampaign('PHPUnit estimate test');

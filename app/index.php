@@ -125,6 +125,14 @@ require_once('../server/infosAPI.php');
                         <a href="?page=journal" class="pc-link"><span class="pc-micon"> <i class="ph ph-list-checks"></i></span><span
                                 class="pc-mtext">Journal d'activité</span></a>
                     </li>
+
+                    <li class="pc-item pc-caption">
+                        <label>Crédits</label>
+                    </li>
+                    <li class="pc-item">
+                        <a href="?page=credits" class="pc-link"><span class="pc-micon"> <i class="ph ph-coins"></i></span><span
+                                class="pc-mtext">Crédits SMS</span></a>
+                    </li>
                     <li class="pc-item">
                         <a href="health.php" class="pc-link"><span class="pc-micon"> <i class="ph ph-heartbeat"></i></span><span
                                 class="pc-mtext">État du système</span></a>
@@ -347,6 +355,8 @@ require_once('../server/infosAPI.php');
                     require_once('./templete/sms-history.php');
                 }else   if ($_GET['page'] == "journal") {
                     require_once('./templete/journal.php');
+                }else   if ($_GET['page'] == "credits") {
+                    require_once('./templete/credits.php');
                 }else   if ($_GET['page'] == "modeles") {
                     require_once('./templete/modeles.php');
                 }else   if ($_GET['page'] == "organisation") {

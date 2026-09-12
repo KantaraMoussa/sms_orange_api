@@ -468,6 +468,44 @@ if (isset($_POST['unarchive_template'])) {
 }
 
 // ------------------------------------------------------------------
+// Crédits (cahier des charges V2.0 §34, Phase 2) : recharge manuelle,
+// réservée à SUPER_ADMIN (rôle plateforme) — contrairement à
+// update_organisation ci-dessous, l'organisation ciblée EST soumise par le
+// formulaire, volontairement : un SUPER_ADMIN doit pouvoir recharger
+// n'importe quelle organisation de la plateforme, pas seulement la sienne.
+// ------------------------------------------------------------------
+
+if (isset($_POST['recharge_credits'])) {
+    if (!auth()->hasRole(['SUPER_ADMIN'])) {
+        http_response_code(403);
+        exit('Accès refusé : seul un super-administrateur peut recharger des crédits.');
+    }
+
+    $targetOrgId = (int) ($_POST['credit_organization_id'] ?? 0);
+    $amount = (int) ($_POST['credit_amount'] ?? 0);
+    $description = trim($_POST['credit_description'] ?? '') ?: 'Recharge manuelle';
+
+    if (!organizations()->find($targetOrgId)) {
+        $_SESSION['class'] = "alert alert-danger";
+        $_SESSION['message'] = "❌ Organisation introuvable.";
+        header("Location: ../app/index.php?page=credits");
+        exit;
+    }
+
+    try {
+        $newBalance = (new \App\Services\CreditService(db(), $targetOrgId))->credit($amount, $description, $actor);
+        activityLog()->log('recharge_credits', null, $actor, "organisation #$targetOrgId +$amount (solde: $newBalance)");
+        $_SESSION['class'] = "alert alert-success";
+        $_SESSION['message'] = "✅ $amount crédit(s) ajouté(s). Nouveau solde : $newBalance.";
+    } catch (Exception $e) {
+        $_SESSION['class'] = "alert alert-danger";
+        $_SESSION['message'] = "❌ " . $e->getMessage();
+    }
+    header("Location: ../app/index.php?page=credits");
+    exit;
+}
+
+// ------------------------------------------------------------------
 // Paramètres de l'organisation (cahier des charges V2.0 §7). Toujours
 // auth()->organizationId() comme cible — jamais un id soumis par le
 // formulaire — pour qu'un utilisateur ne puisse modifier que sa propre
