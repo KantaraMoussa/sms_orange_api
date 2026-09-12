@@ -22,11 +22,11 @@ class CampaignQueueService
     ) {
     }
 
-    public function createCampaign(string $nom, string $description = '', string $type = 'generique', ?string $createdBy = null, int $batchSize = 50): int
+    public function createCampaign(int $organizationId, string $nom, string $description = '', string $type = 'generique', ?string $createdBy = null, int $batchSize = 50): int
     {
         $stmt = $this->pdo->prepare(
-            "INSERT INTO campagne (nom, description, type, statut, batch_size, created_by, date_debut, date_fin)
-             VALUES (:nom, :description, :type, 'DRAFT', :batch_size, :created_by, NOW(), NOW() + INTERVAL '1 month')
+            "INSERT INTO campagne (nom, description, type, statut, batch_size, created_by, date_debut, date_fin, organization_id)
+             VALUES (:nom, :description, :type, 'DRAFT', :batch_size, :created_by, NOW(), NOW() + INTERVAL '1 month', :organization_id)
              RETURNING id"
         );
         $stmt->execute([
@@ -35,6 +35,7 @@ class CampaignQueueService
             ':type' => $type,
             ':batch_size' => $batchSize,
             ':created_by' => $createdBy,
+            ':organization_id' => $organizationId,
         ]);
 
         return (int) $stmt->fetchColumn();
@@ -55,9 +56,14 @@ class CampaignQueueService
         $duplicates = 0;
         $invalid = 0;
 
+        // organization_id est repris de la campagne elle-même (sous-requête) plutôt
+        // que passé en paramètre : addRecipients() est aussi appelé par des flux
+        // internes (server/app.php::send_to_group) qui connaissent déjà l'id de
+        // campagne mais n'ont pas à re-résoudre l'organisation courante.
         $insert = $this->pdo->prepare(
-            "INSERT INTO messages (campagne_id, contenu, destinataire, nom, prenom, statut, unique_key)
-             VALUES (:campagne_id, :contenu, :destinataire, :nom, :prenom, 'en_attente', :unique_key)
+            "INSERT INTO messages (campagne_id, contenu, destinataire, nom, prenom, statut, unique_key, organization_id)
+             VALUES (:campagne_id, :contenu, :destinataire, :nom, :prenom, 'en_attente', :unique_key,
+                     (SELECT organization_id FROM campagne WHERE id = :campagne_id))
              ON CONFLICT (unique_key) WHERE unique_key IS NOT NULL DO NOTHING"
         );
 

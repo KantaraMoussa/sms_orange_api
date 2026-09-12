@@ -23,7 +23,8 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <?php if (!empty(getCampagne())): foreach (getCampagne() as $c): ?>
+                            <?php $campagnesListe = getCampagne(auth()->organizationId()); ?>
+                            <?php if (!empty($campagnesListe)): foreach ($campagnesListe as $c): ?>
                             <tr>
                                 <td><?= htmlspecialchars($c['nom']) ?></td>
                                 <td><?= htmlspecialchars($c['statut']) ?></td>

@@ -4,7 +4,7 @@ session_start();
 auth()->requireLogin('../app/login.php');
 // app.php ne fait que des mutations (création/import/envoi) — un VIEWER (lecture
 // seule, §38) ne doit jamais pouvoir déclencher un envoi de SMS ou une suppression.
-if (!auth()->hasRole(['SUPER_ADMIN', 'ADMIN', 'OPERATOR'])) {
+if (!auth()->hasRole(['SUPER_ADMIN', 'OWNER', 'ADMIN', 'OPERATOR'])) {
     http_response_code(403);
     exit('Accès refusé : votre rôle ne permet pas cette action.');
 }
@@ -54,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_campagne'])) {
     $description = trim($_POST['campagne_description']);
 
     if (!empty($nom)) {
-        $campagneId = campaignQueue()->createCampaign($nom, $description, 'generique', 'admin', 50);
+        $campagneId = campaignQueue()->createCampaign(auth()->organizationId(), $nom, $description, 'generique', 'admin', 50);
         activityLog()->log('creation_campagne', $campagneId, $actor, $nom);
         $_SESSION['class'] = "alert alert-success";
         $_SESSION['message'] = "✅ Campagne créée avec succès. Importez maintenant vos destinataires.";
@@ -72,9 +72,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_campagne'])) {
 // Une ligne importée = un destinataire de campagne (§59 : import massif).
 if (isset($_POST['import_excel_recipients']) && isset($_FILES['excelFile']) && isset($_POST['campagne_id'])) {
     $campagneId = (int) $_POST['campagne_id'];
-    $campagne = getSingleCampagne($campagneId);
+    $campagne = assertOwnsCampagne($campagneId);
 
-    if (!$campagne || $campagne['statut'] !== 'DRAFT') {
+    if ($campagne['statut'] !== 'DRAFT') {
         $_SESSION['class'] = "alert alert-danger";
         $_SESSION['message'] = "❌ Impossible d'importer : campagne introuvable ou déjà lancée.";
         redirectBack();
@@ -145,6 +145,7 @@ if (isset($_POST['import_excel_recipients']) && isset($_FILES['excelFile']) && i
 // ensuite par lots via server/campaign_worker.php, jamais dans cette requête.
 if (isset($_POST['launch_campagne'])) {
     $campagneId = (int) $_POST['campagne_id'];
+    assertOwnsCampagne($campagneId);
     $dryRun = isset($_POST['dry_run']);
     campaignQueue()->queueCampaign($campagneId, $dryRun);
     activityLog()->log('lancement_campagne', $campagneId, $actor, $dryRun ? 'dry_run' : null);
@@ -154,6 +155,7 @@ if (isset($_POST['launch_campagne'])) {
 
 if (isset($_POST['pause_campagne'])) {
     $campagneId = (int) $_POST['campagne_id'];
+    assertOwnsCampagne($campagneId);
     campaignQueue()->pause($campagneId);
     activityLog()->log('pause_campagne', $campagneId, $actor);
     header("Location: ../app/index.php?page=campgagne&details=$campagneId");
@@ -162,6 +164,7 @@ if (isset($_POST['pause_campagne'])) {
 
 if (isset($_POST['resume_campagne'])) {
     $campagneId = (int) $_POST['campagne_id'];
+    assertOwnsCampagne($campagneId);
     campaignQueue()->resume($campagneId);
     activityLog()->log('reprise_campagne', $campagneId, $actor);
     header("Location: ../app/index.php?page=campgagne&details=$campagneId");
@@ -170,6 +173,7 @@ if (isset($_POST['resume_campagne'])) {
 
 if (isset($_POST['cancel_campagne'])) {
     $campagneId = (int) $_POST['campagne_id'];
+    assertOwnsCampagne($campagneId);
     campaignQueue()->cancel($campagneId);
     activityLog()->log('annulation_campagne', $campagneId, $actor);
     header("Location: ../app/index.php?page=campgagne&details=$campagneId");
@@ -178,6 +182,7 @@ if (isset($_POST['cancel_campagne'])) {
 
 if (isset($_POST['retry_campagne_failures'])) {
     $campagneId = (int) $_POST['campagne_id'];
+    assertOwnsCampagne($campagneId);
     $n = campaignQueue()->retryFailed($campagneId);
     campaignQueue()->queueCampaign($campagneId);
     activityLog()->log('retry_campagne', $campagneId, $actor, "$n message(s) remis en file");
@@ -264,6 +269,32 @@ if (isset($_POST['unarchive_template'])) {
     $_SESSION['class'] = "alert alert-success";
     $_SESSION['message'] = "✅ Modèle réactivé.";
     header("Location: ../app/index.php?page=modeles");
+    exit;
+}
+
+// ------------------------------------------------------------------
+// Paramètres de l'organisation (cahier des charges V2.0 §7). Toujours
+// auth()->organizationId() comme cible — jamais un id soumis par le
+// formulaire — pour qu'un utilisateur ne puisse modifier que sa propre
+// organisation.
+// ------------------------------------------------------------------
+
+if (isset($_POST['update_organisation'])) {
+    organizations()->update(auth()->organizationId(), [
+        'nom' => trim($_POST['org_nom'] ?? ''),
+        'secteur' => trim($_POST['org_secteur'] ?? '') ?: null,
+        'telephone' => trim($_POST['org_telephone'] ?? '') ?: null,
+        'email' => trim($_POST['org_email'] ?? '') ?: null,
+        'adresse' => trim($_POST['org_adresse'] ?? '') ?: null,
+        'pays' => trim($_POST['org_pays'] ?? '') ?: null,
+        'fuseau_horaire' => trim($_POST['org_fuseau_horaire'] ?? '') ?: 'Africa/Conakry',
+        'devise' => trim($_POST['org_devise'] ?? '') ?: 'GNF',
+        'sender_name' => trim($_POST['org_sender_name'] ?? '') ?: null,
+    ]);
+    activityLog()->log('modification_organisation', null, $actor);
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "✅ Informations de l'organisation mises à jour.";
+    header("Location: ../app/index.php?page=organisation");
     exit;
 }
 
@@ -412,6 +443,7 @@ if (isset($_POST['send_to_group'])) {
     }
 
     $campagneId = campaignQueue()->createCampaign(
+        auth()->organizationId(),
         'Envoi au groupe ' . $group['nom'],
         'Campagne générée depuis le groupe « ' . $group['nom'] . ' »',
         'contacts',

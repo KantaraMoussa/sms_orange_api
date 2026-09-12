@@ -21,9 +21,17 @@ class AuthServiceTest extends TestCase
 
     private function authWithUserRow(?array $row): AuthService
     {
+        if ($row !== null) {
+            $row += ['organization_id' => 1];
+        }
+
         $stmt = $this->createMock(PDOStatement::class);
         $stmt->method('execute')->willReturn(true);
         $stmt->method('fetch')->willReturn($row === null ? false : $row);
+        // Deuxième requête d'AuthService::attempt() (nom de l'organisation) — le
+        // même mock $stmt sert aux deux prepare(), fetchColumn() n'a pas besoin
+        // d'être réaliste ici, seul fetch() (ligne utilisateur) importe au test.
+        $stmt->method('fetchColumn')->willReturn('Organisation Test');
 
         $pdo = $this->createMock(PDO::class);
         $pdo->method('prepare')->willReturn($stmt);
@@ -63,6 +71,7 @@ class AuthServiceTest extends TestCase
         $this->assertTrue($auth->check());
         $this->assertSame([
             'id' => 42, 'nom' => 'Admin Test', 'email' => 'a@example.com', 'role' => 'SUPER_ADMIN',
+            'organization_id' => 1, 'organization_nom' => 'Organisation Test',
         ], $auth->user());
     }
 

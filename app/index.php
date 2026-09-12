@@ -124,6 +124,14 @@ require_once('../server/infosAPI.php');
                         <a href="health.php" class="pc-link"><span class="pc-micon"> <i class="ph ph-heartbeat"></i></span><span
                                 class="pc-mtext">État du système</span></a>
                     </li>
+
+                    <li class="pc-item pc-caption">
+                        <label>Paramètres</label>
+                    </li>
+                    <li class="pc-item">
+                        <a href="?page=organisation" class="pc-link"><span class="pc-micon"> <i class="ph ph-buildings"></i></span><span
+                                class="pc-mtext">Organisation</span></a>
+                    </li>
                 </ul>
             </div>
 
@@ -224,6 +232,12 @@ require_once('../server/infosAPI.php');
                                             </span>
                                         </li>
                                         <li class="list-group-item">
+                                            <span class="d-flex align-items-center">
+                                                <i class="ph ph-buildings"></i>
+                                                <span><?= htmlspecialchars(auth()->user()['organization_nom'] ?? '') ?></span>
+                                            </span>
+                                        </li>
+                                        <li class="list-group-item">
                                             <a href="logout.php" class="dropdown-item">
                                                 <span class="d-flex align-items-center">
                                                     <i class="ph ph-power"></i>
@@ -259,7 +273,7 @@ require_once('../server/infosAPI.php');
                         </div>
                     </div>
                 </div>
-                <?php $globalStats = getGlobalSmsStats(); ?>
+                <?php $globalStats = getGlobalSmsStats(auth()->organizationId()); ?>
                 <div class="col-md-6 col-xl-3">
                     <div class="card bg-grd-success order-card">
                         <div class="card-body">
@@ -324,6 +338,8 @@ require_once('../server/infosAPI.php');
                     require_once('./templete/journal.php');
                 }else   if ($_GET['page'] == "modeles") {
                     require_once('./templete/modeles.php');
+                }else   if ($_GET['page'] == "organisation") {
+                    require_once('./templete/organisation.php');
                 } else {
                     require_once('./templete/404.php');
                 }

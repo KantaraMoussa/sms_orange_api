@@ -26,7 +26,7 @@ class ContactServiceTest extends TestCase
     protected function setUp(): void
     {
         $this->pdo = db();
-        $this->service = new ContactService($this->pdo);
+        $this->service = new ContactService($this->pdo, 1);
     }
 
     protected function tearDown(): void

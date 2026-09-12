@@ -43,7 +43,7 @@ class CampaignQueueServiceTest extends TestCase
 
     private function makeCampaign(string $nom = 'PHPUnit test campaign', int $batchSize = 50): int
     {
-        $id = $this->queue->createCampaign($nom, 'created by the automated test suite', 'phpunit_test', 'phpunit', $batchSize);
+        $id = $this->queue->createCampaign(1, $nom, 'created by the automated test suite', 'phpunit_test', 'phpunit', $batchSize);
         $this->createdCampaignIds[] = $id;
         return $id;
     }

@@ -1,7 +1,8 @@
 <?php
-$campaigns = getCampaignsReport();
-$topErrors = getTopErrors();
-$globalStats = getGlobalSmsStats();
+$orgId = auth()->organizationId();
+$campaigns = getCampaignsReport($orgId);
+$topErrors = getTopErrors($orgId);
+$globalStats = getGlobalSmsStats($orgId);
 ?>
 <hr>
 <div class="row text-center mb-3">

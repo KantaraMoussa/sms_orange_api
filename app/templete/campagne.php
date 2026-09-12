@@ -20,8 +20,9 @@
                              </tr>
                          </thead>
                          <tbody>
-                             <?php if (!empty(getCampagne())): ?>
-                                 <?php foreach (getCampagne() as $campagne): ?>
+                             <?php $campagnes = getCampagne(auth()->organizationId()); ?>
+                             <?php if (!empty($campagnes)): ?>
+                                 <?php foreach ($campagnes as $campagne): ?>
                                      <tr>
                                          <td><?= htmlspecialchars($campagne['nom']) ?></td>
                                          <td><?= htmlspecialchars($campagne['description']) ?></td>

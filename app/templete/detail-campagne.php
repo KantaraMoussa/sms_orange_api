@@ -1,6 +1,9 @@
 <?php
 $campagne = (!empty($_GET['details'])) ? getSingleCampagne($_GET['details']) : null;
-if (!$campagne) {
+// §59 : une campagne_id valide mais appartenant à une autre organisation doit
+// être traitée comme "introuvable", pas affichée (IDOR sinon — l'id de
+// campagne est un entier auto-incrémenté global, donc devinable/énumérable).
+if (!$campagne || (int) $campagne['organization_id'] !== auth()->organizationId()) {
     echo '<div class="alert alert-danger">Campagne introuvable.</div>';
     return;
 }

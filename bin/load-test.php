@@ -37,7 +37,7 @@ $campaignId = null;
 try {
     // 1) Création + import
     $t0 = microtime(true);
-    $campaignId = $queue->createCampaign("Load test $count", 'Test de charge automatisé', 'loadtest', 'load-test.php', $batchSize);
+    $campaignId = $queue->createCampaign(1, "Load test $count", 'Test de charge automatisé', 'loadtest', 'load-test.php', $batchSize);
 
     $rows = [];
     for ($i = 0; $i < $count; $i++) {

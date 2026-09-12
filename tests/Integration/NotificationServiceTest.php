@@ -23,7 +23,7 @@ class NotificationServiceTest extends TestCase
     protected function setUp(): void
     {
         $this->pdo = db();
-        $this->service = new NotificationService($this->pdo);
+        $this->service = new NotificationService($this->pdo, 1);
     }
 
     protected function tearDown(): void
@@ -72,8 +72,8 @@ class NotificationServiceTest extends TestCase
     public function testCreateUnlessRecentDuplicateIsScopedPerCampaign(): void
     {
         $queue = new CampaignQueueService($this->pdo, orangeSms());
-        $campaignA = $queue->createCampaign('PHPUnit notif campaign A', '', 'phpunit_test', 'phpunit', 50);
-        $campaignB = $queue->createCampaign('PHPUnit notif campaign B', '', 'phpunit_test', 'phpunit', 50);
+        $campaignA = $queue->createCampaign(1, 'PHPUnit notif campaign A', '', 'phpunit_test', 'phpunit', 50);
+        $campaignB = $queue->createCampaign(1, 'PHPUnit notif campaign B', '', 'phpunit_test', 'phpunit', 50);
         $this->createdCampaignIds = [$campaignA, $campaignB];
 
         $this->service->createUnlessRecentDuplicate('phpunit_test_notif', 'Campaign A done', 'msg', $campaignA, 60);

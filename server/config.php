@@ -24,14 +24,27 @@ function PDO()
 {
     return db();
 }
-function getCampagne()
+function getCampagne(int $organizationId)
 {
-    $sql = "SELECT id,nom,description,date_creation,date_debut,date_fin,statut 
-        FROM campagne 
+    $sql = "SELECT id,nom,description,date_creation,date_debut,date_fin,statut
+        FROM campagne
+        WHERE organization_id = :organization_id
         ORDER BY date_creation DESC";
-    $stmt = PDO()->query($sql);
+    $stmt = PDO()->prepare($sql);
+    $stmt->bindValue(':organization_id', $organizationId, PDO::PARAM_INT);
+    $stmt->execute();
     return  $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
+/**
+ * Volontairement non scopée par organisation : utilisée par le worker CLI
+ * (server/campaign_worker.php, bin/process-campaign.php), qui n'a pas de
+ * session HTTP et doit pouvoir traiter les campagnes de toutes les
+ * organisations. Les pages HTTP qui l'appellent avec un id fourni par
+ * l'utilisateur (ex. detail-campagne.php) DOIVENT vérifier elles-mêmes que
+ * `organization_id` correspond à `auth()->organizationId()` — voir
+ * assertOwnsCampagne() ci-dessous — sous peine de fuite inter-organisation
+ * (IDOR, §59).
+ */
 function getSingleCampagne($campagneId)
 {
     $sql = "SELECT * FROM campagne WHERE id = :id";
@@ -39,6 +52,24 @@ function getSingleCampagne($campagneId)
     $stmt->bindParam(':id', $campagneId, PDO::PARAM_INT);
     $stmt->execute();
     return $stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Garde-fou anti-IDOR (§59) : à appeler par toute route HTTP mutante ou de
+ * consultation qui reçoit un campagne_id fourni par le client, avant tout
+ * accès à campaignQueue() ou aux tables messages/campagne. Termine la requête
+ * en 404 si la campagne n'existe pas ou appartient à une autre organisation
+ * (même réponse dans les deux cas : ne pas révéler qu'un id existe ailleurs).
+ */
+function assertOwnsCampagne(int $campagneId): array
+{
+    $campagne = getSingleCampagne($campagneId);
+    if (!$campagne || (int) $campagne['organization_id'] !== auth()->organizationId()) {
+        http_response_code(404);
+        exit('Campagne introuvable.');
+    }
+
+    return $campagne;
 }
 function getMessageCampagne($campagneId)
 {
@@ -113,14 +144,18 @@ function redirectBack(string $fallback = '../app/index.php'): void
 // -- Statistiques réelles pour le tableau de bord (remplacent les KPI/graphiques
 // factices de la Phase 1, cf. audit §8) --
 
-function getGlobalSmsStats()
+function getGlobalSmsStats(int $organizationId)
 {
     $sql = "SELECT
                 COUNT(*) FILTER (WHERE statut = 'envoye') AS envoyes,
                 COUNT(*) FILTER (WHERE statut = 'echec') AS echecs,
                 COUNT(*) FILTER (WHERE statut IN ('en_attente','en_cours')) AS en_attente
-            FROM messages";
-    $row = PDO()->query($sql)->fetch(PDO::FETCH_ASSOC);
+            FROM messages
+            WHERE organization_id = :organization_id";
+    $stmt = PDO()->prepare($sql);
+    $stmt->bindValue(':organization_id', $organizationId, PDO::PARAM_INT);
+    $stmt->execute();
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
     $envoyes = (int) ($row['envoyes'] ?? 0);
     $echecs = (int) ($row['echecs'] ?? 0);
     $traites = $envoyes + $echecs;
@@ -133,15 +168,15 @@ function getGlobalSmsStats()
     ];
 }
 
-function getSmsEvolution(int $days = 14)
+function getSmsEvolution(int $organizationId, int $days = 14)
 {
     $sql = "SELECT DATE(date_traitement) AS jour, COUNT(*) AS total
             FROM messages
-            WHERE statut = 'envoye' AND date_traitement >= NOW() - (:days || ' days')::interval
+            WHERE organization_id = :organization_id AND statut = 'envoye' AND date_traitement >= NOW() - (:days || ' days')::interval
             GROUP BY DATE(date_traitement)
             ORDER BY jour";
     $stmt = PDO()->prepare($sql);
-    $stmt->execute([':days' => $days]);
+    $stmt->execute([':organization_id' => $organizationId, ':days' => $days]);
     $rows = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 
     $series = [];
@@ -158,17 +193,17 @@ function getSmsEvolution(int $days = 14)
  * 4ᵉ graphique du dashboard). Un jour sans aucun SMS traité vaut `null`
  * (pas 0%) pour ne pas laisser croire à un échec total un jour d'inactivité.
  */
-function getSuccessRateEvolution(int $days = 14)
+function getSuccessRateEvolution(int $organizationId, int $days = 14)
 {
     $sql = "SELECT DATE(date_traitement) AS jour,
                 COUNT(*) FILTER (WHERE statut = 'envoye') AS envoyes,
                 COUNT(*) FILTER (WHERE statut IN ('envoye', 'echec')) AS traites
             FROM messages
-            WHERE date_traitement >= NOW() - (:days || ' days')::interval
+            WHERE organization_id = :organization_id AND date_traitement >= NOW() - (:days || ' days')::interval
             GROUP BY DATE(date_traitement)
             ORDER BY jour";
     $stmt = PDO()->prepare($sql);
-    $stmt->execute([':days' => $days]);
+    $stmt->execute([':organization_id' => $organizationId, ':days' => $days]);
     $rows = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $traites = (int) $row['traites'];
@@ -184,36 +219,42 @@ function getSuccessRateEvolution(int $days = 14)
     return $series;
 }
 
-function getCampaignPerformance(int $limit = 6)
+function getCampaignPerformance(int $organizationId, int $limit = 6)
 {
     $sql = "SELECT nom, nombre_envoyes, nombre_echecs
             FROM campagne
-            WHERE total_destinataires > 0
+            WHERE organization_id = :organization_id AND total_destinataires > 0
             ORDER BY date_creation DESC
             LIMIT :limit";
     $stmt = PDO()->prepare($sql);
+    $stmt->bindValue(':organization_id', $organizationId, PDO::PARAM_INT);
     $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
     $stmt->execute();
     return array_reverse($stmt->fetchAll(PDO::FETCH_ASSOC));
 }
 
-function getCampaignsReport()
+function getCampaignsReport(int $organizationId)
 {
     $sql = "SELECT id, nom, type, statut, total_destinataires, nombre_envoyes, nombre_echecs, date_creation, date_completion
             FROM campagne
+            WHERE organization_id = :organization_id
             ORDER BY date_creation DESC";
-    return PDO()->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+    $stmt = PDO()->prepare($sql);
+    $stmt->bindValue(':organization_id', $organizationId, PDO::PARAM_INT);
+    $stmt->execute();
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-function getTopErrors(int $limit = 10)
+function getTopErrors(int $organizationId, int $limit = 10)
 {
     $sql = "SELECT error_code, COUNT(*) AS total
             FROM messages
-            WHERE statut = 'echec' AND error_code IS NOT NULL
+            WHERE organization_id = :organization_id AND statut = 'echec' AND error_code IS NOT NULL
             GROUP BY error_code
             ORDER BY total DESC
             LIMIT :limit";
     $stmt = PDO()->prepare($sql);
+    $stmt->bindValue(':organization_id', $organizationId, PDO::PARAM_INT);
     $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
     $stmt->execute();
     return $stmt->fetchAll(PDO::FETCH_ASSOC);

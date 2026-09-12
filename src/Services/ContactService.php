@@ -13,6 +13,13 @@ use PhpOffice\PhpSpreadsheet\Reader\Csv;
  * l'utilisateur (voir AUDIT.md) : import Excel/CSV avec rapport détaillé,
  * normalisation téléphone (partagée avec PhoneNumberService), détection de
  * doublons.
+ *
+ * Scopé à une organisation (§59, migration 012_organizations.sql) : chaque
+ * méthode lit/écrit exclusivement les lignes de $organizationId, injecté à la
+ * construction (voir config/services.php::contacts()). Une tentative d'agir
+ * sur l'id d'un contact/groupe d'une autre organisation affecte 0 ligne au
+ * lieu de lever une erreur — comportement volontaire : ne pas révéler par la
+ * différence d'erreur si l'id existe chez un concurrent.
  */
 class ContactService
 {
@@ -23,7 +30,7 @@ class ContactService
         'email' => ['email', 'e-mail', 'mail'],
     ];
 
-    public function __construct(private PDO $pdo)
+    public function __construct(private PDO $pdo, private int $organizationId)
     {
     }
 
@@ -39,9 +46,9 @@ class ContactService
         }
 
         $stmt = $this->pdo->prepare(
-            "INSERT INTO contacts_v2 (nom, prenom, telephone, telephone_brut, email)
-             VALUES (:nom, :prenom, :telephone, :telephone_brut, :email)
-             ON CONFLICT (telephone) DO UPDATE SET nom = EXCLUDED.nom, prenom = EXCLUDED.prenom,
+            "INSERT INTO contacts_v2 (nom, prenom, telephone, telephone_brut, email, organization_id)
+             VALUES (:nom, :prenom, :telephone, :telephone_brut, :email, :organization_id)
+             ON CONFLICT (organization_id, telephone) DO UPDATE SET nom = EXCLUDED.nom, prenom = EXCLUDED.prenom,
                 email = EXCLUDED.email, updated_at = NOW()
              RETURNING id"
         );
@@ -51,6 +58,7 @@ class ContactService
             ':telephone' => $phone,
             ':telephone_brut' => $telephoneRaw,
             ':email' => $email ?: null,
+            ':organization_id' => $this->organizationId,
         ]);
 
         return (int) $stmt->fetchColumn();
@@ -58,14 +66,15 @@ class ContactService
 
     public function deleteContact(int $id): void
     {
-        $this->pdo->prepare("DELETE FROM contacts_v2 WHERE id = :id")->execute([':id' => $id]);
+        $this->pdo->prepare("DELETE FROM contacts_v2 WHERE id = :id AND organization_id = :organization_id")
+            ->execute([':id' => $id, ':organization_id' => $this->organizationId]);
     }
 
     /** @return list<array<string,mixed>> */
     public function allContacts(?int $groupeId = null, string $search = ''): array
     {
-        $where = ['1=1'];
-        $params = [];
+        $where = ['c.organization_id = :organization_id'];
+        $params = [':organization_id' => $this->organizationId];
 
         if ($groupeId !== null) {
             $where[] = 'gc.groupe_id = :groupe_id';
@@ -87,7 +96,10 @@ class ContactService
 
     public function countContacts(): int
     {
-        return (int) $this->pdo->query("SELECT COUNT(*) FROM contacts_v2")->fetchColumn();
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM contacts_v2 WHERE organization_id = :organization_id");
+        $stmt->execute([':organization_id' => $this->organizationId]);
+
+        return (int) $stmt->fetchColumn();
     }
 
     // ------------------------------------------------------------------
@@ -97,16 +109,22 @@ class ContactService
     public function createGroup(string $nom, string $description = '', ?string $createdBy = null): int
     {
         $stmt = $this->pdo->prepare(
-            "INSERT INTO groupes_v2 (nom, description, created_by) VALUES (:nom, :description, :created_by) RETURNING id"
+            "INSERT INTO groupes_v2 (nom, description, created_by, organization_id) VALUES (:nom, :description, :created_by, :organization_id) RETURNING id"
         );
-        $stmt->execute([':nom' => $nom, ':description' => $description, ':created_by' => $createdBy]);
+        $stmt->execute([
+            ':nom' => $nom,
+            ':description' => $description,
+            ':created_by' => $createdBy,
+            ':organization_id' => $this->organizationId,
+        ]);
 
         return (int) $stmt->fetchColumn();
     }
 
     public function deleteGroup(int $id): void
     {
-        $this->pdo->prepare("DELETE FROM groupes_v2 WHERE id = :id")->execute([':id' => $id]);
+        $this->pdo->prepare("DELETE FROM groupes_v2 WHERE id = :id AND organization_id = :organization_id")
+            ->execute([':id' => $id, ':organization_id' => $this->organizationId]);
     }
 
     /** @return list<array<string,mixed>> */
@@ -115,33 +133,49 @@ class ContactService
         $sql = "SELECT g.*, COUNT(gc.contact_id) AS nombre_contacts
                 FROM groupes_v2 g
                 LEFT JOIN groupe_contacts_v2 gc ON gc.groupe_id = g.id
+                WHERE g.organization_id = :organization_id
                 GROUP BY g.id
                 ORDER BY g.nom";
 
-        return $this->pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([':organization_id' => $this->organizationId]);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     public function findGroup(int $id): ?array
     {
-        $stmt = $this->pdo->prepare("SELECT * FROM groupes_v2 WHERE id = :id");
-        $stmt->execute([':id' => $id]);
+        $stmt = $this->pdo->prepare("SELECT * FROM groupes_v2 WHERE id = :id AND organization_id = :organization_id");
+        $stmt->execute([':id' => $id, ':organization_id' => $this->organizationId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return $row !== false ? $row : null;
     }
 
+    /**
+     * Le groupe ET le contact doivent appartenir à l'organisation courante —
+     * sans cette double vérification, un id de contact d'une autre
+     * organisation glissé dans le formulaire pourrait être rattaché à un de
+     * nos groupes (les ids restent globaux, seule cette requête protège le
+     * lien).
+     */
     public function addContactToGroup(int $groupeId, int $contactId): void
     {
         $this->pdo->prepare(
-            "INSERT INTO groupe_contacts_v2 (groupe_id, contact_id) VALUES (:g, :c) ON CONFLICT DO NOTHING"
-        )->execute([':g' => $groupeId, ':c' => $contactId]);
+            "INSERT INTO groupe_contacts_v2 (groupe_id, contact_id)
+             SELECT :g, :c
+             WHERE EXISTS (SELECT 1 FROM groupes_v2 WHERE id = :g AND organization_id = :organization_id)
+               AND EXISTS (SELECT 1 FROM contacts_v2 WHERE id = :c AND organization_id = :organization_id)
+             ON CONFLICT DO NOTHING"
+        )->execute([':g' => $groupeId, ':c' => $contactId, ':organization_id' => $this->organizationId]);
     }
 
     public function removeContactFromGroup(int $groupeId, int $contactId): void
     {
         $this->pdo->prepare(
-            "DELETE FROM groupe_contacts_v2 WHERE groupe_id = :g AND contact_id = :c"
-        )->execute([':g' => $groupeId, ':c' => $contactId]);
+            "DELETE FROM groupe_contacts_v2 WHERE groupe_id = :g AND contact_id = :c
+             AND EXISTS (SELECT 1 FROM groupes_v2 WHERE id = :g AND organization_id = :organization_id)"
+        )->execute([':g' => $groupeId, ':c' => $contactId, ':organization_id' => $this->organizationId]);
     }
 
     // ------------------------------------------------------------------
@@ -176,9 +210,9 @@ class ContactService
         $importId = $this->createImportBatch($path, $createdBy);
 
         $upsert = $this->pdo->prepare(
-            "INSERT INTO contacts_v2 (nom, prenom, telephone, telephone_brut, email, updated_at)
-             VALUES (:nom, :prenom, :telephone, :telephone_brut, :email, NOW())
-             ON CONFLICT (telephone) DO UPDATE SET nom = EXCLUDED.nom, prenom = EXCLUDED.prenom,
+            "INSERT INTO contacts_v2 (nom, prenom, telephone, telephone_brut, email, organization_id, updated_at)
+             VALUES (:nom, :prenom, :telephone, :telephone_brut, :email, :organization_id, NOW())
+             ON CONFLICT (organization_id, telephone) DO UPDATE SET nom = EXCLUDED.nom, prenom = EXCLUDED.prenom,
                 email = EXCLUDED.email, updated_at = NOW()
              RETURNING id, (xmax = 0) AS inserted"
         );
@@ -213,6 +247,7 @@ class ContactService
                 ':telephone' => $phone,
                 ':telephone_brut' => $telephoneBrut,
                 ':email' => $get('email') ?: null,
+                ':organization_id' => $this->organizationId,
             ]);
             $result = $upsert->fetch(PDO::FETCH_ASSOC);
             $wasInsert = in_array($result['inserted'], [true, 't', '1', 1], true);
@@ -285,8 +320,8 @@ class ContactService
 
     private function createImportBatch(string $path, ?string $createdBy): int
     {
-        $stmt = $this->pdo->prepare("INSERT INTO imports_contacts (filename, created_by) VALUES (:filename, :created_by) RETURNING id");
-        $stmt->execute([':filename' => basename($path), ':created_by' => $createdBy]);
+        $stmt = $this->pdo->prepare("INSERT INTO imports_contacts (filename, created_by, organization_id) VALUES (:filename, :created_by, :organization_id) RETURNING id");
+        $stmt->execute([':filename' => basename($path), ':created_by' => $createdBy, ':organization_id' => $this->organizationId]);
 
         return (int) $stmt->fetchColumn();
     }
@@ -295,7 +330,7 @@ class ContactService
     {
         $stmt = $this->pdo->prepare(
             "UPDATE imports_contacts SET total_lignes = :total, valides = :valides, invalides = :invalides,
-             doublons = :doublons, errors_json = :errors WHERE id = :id"
+             doublons = :doublons, errors_json = :errors WHERE id = :id AND organization_id = :organization_id"
         );
         $stmt->execute([
             ':total' => $total,
@@ -304,14 +339,15 @@ class ContactService
             ':doublons' => $doublons,
             ':errors' => json_encode(array_slice($errors, 0, 500)),
             ':id' => $importId,
+            ':organization_id' => $this->organizationId,
         ]);
     }
 
     /** @return list<array{ligne:int,erreur:string}> */
     public function getImportErrors(int $importId): array
     {
-        $stmt = $this->pdo->prepare("SELECT errors_json FROM imports_contacts WHERE id = :id");
-        $stmt->execute([':id' => $importId]);
+        $stmt = $this->pdo->prepare("SELECT errors_json FROM imports_contacts WHERE id = :id AND organization_id = :organization_id");
+        $stmt->execute([':id' => $importId, ':organization_id' => $this->organizationId]);
         $json = $stmt->fetchColumn();
         $decoded = $json ? json_decode((string) $json, true) : null;
 
@@ -321,7 +357,8 @@ class ContactService
     /** @return list<array<string,mixed>> */
     public function getImportHistory(int $limit = 10): array
     {
-        $stmt = $this->pdo->prepare("SELECT * FROM imports_contacts ORDER BY created_at DESC LIMIT :limit");
+        $stmt = $this->pdo->prepare("SELECT * FROM imports_contacts WHERE organization_id = :organization_id ORDER BY created_at DESC LIMIT :limit");
+        $stmt->bindValue(':organization_id', $this->organizationId, PDO::PARAM_INT);
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
 

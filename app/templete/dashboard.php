@@ -1,9 +1,10 @@
 <?php
-$evolution = getSmsEvolution(14);
-$globalStats = getGlobalSmsStats();
-$performance = getCampaignPerformance(6);
-$successRateEvolution = getSuccessRateEvolution(14);
-$recentCampagnes = array_slice(getCampagne(), 0, 5);
+$orgId = auth()->organizationId();
+$evolution = getSmsEvolution($orgId, 14);
+$globalStats = getGlobalSmsStats($orgId);
+$performance = getCampaignPerformance($orgId, 6);
+$successRateEvolution = getSuccessRateEvolution($orgId, 14);
+$recentCampagnes = array_slice(getCampagne($orgId), 0, 5);
 ?>
 <div class="row">
     <div class="col-sm-7">

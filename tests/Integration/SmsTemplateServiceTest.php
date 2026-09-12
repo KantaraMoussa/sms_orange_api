@@ -22,7 +22,7 @@ class SmsTemplateServiceTest extends TestCase
     protected function setUp(): void
     {
         $this->pdo = db();
-        $this->service = new SmsTemplateService($this->pdo);
+        $this->service = new SmsTemplateService($this->pdo, 1);
     }
 
     protected function tearDown(): void

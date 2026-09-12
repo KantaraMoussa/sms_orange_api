@@ -24,7 +24,7 @@ class ActivityLoggerTest extends TestCase
     protected function setUp(): void
     {
         $this->pdo = db();
-        $this->logger = new ActivityLogger($this->pdo);
+        $this->logger = new ActivityLogger($this->pdo, 1);
     }
 
     protected function tearDown(): void
@@ -52,7 +52,7 @@ class ActivityLoggerTest extends TestCase
     public function testForCampaignReturnsOnlyThatCampaignsEntries(): void
     {
         $queue = new CampaignQueueService($this->pdo, orangeSms());
-        $campaignId = $queue->createCampaign('PHPUnit activity log campaign', '', 'phpunit_test', 'phpunit_activity_test', 50);
+        $campaignId = $queue->createCampaign(1, 'PHPUnit activity log campaign', '', 'phpunit_test', 'phpunit_activity_test', 50);
         $this->createdCampaignIds[] = $campaignId;
 
         $this->logger->log('creation_campagne', $campaignId, 'phpunit_activity_test', 'test');
@@ -70,7 +70,7 @@ class ActivityLoggerTest extends TestCase
     public function testRecentJoinsCampaignName(): void
     {
         $queue = new CampaignQueueService($this->pdo, orangeSms());
-        $campaignId = $queue->createCampaign('PHPUnit activity log join test', '', 'phpunit_test', 'phpunit_activity_test', 50);
+        $campaignId = $queue->createCampaign(1, 'PHPUnit activity log join test', '', 'phpunit_test', 'phpunit_activity_test', 50);
         $this->createdCampaignIds[] = $campaignId;
 
         $this->logger->log('creation_campagne', $campaignId, 'phpunit_activity_test');
