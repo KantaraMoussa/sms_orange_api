@@ -10,10 +10,9 @@ use PhpOffice\PhpSpreadsheet\Reader\Csv;
 /**
  * Module Contacts/Groupes (cahier des charges V2.0 §22-24), recréé le
  * 2026-09-12 après une suppression puis une nouvelle demande explicites de
- * l'utilisateur (voir AUDIT.md). Suit le même modèle que
- * AcademicResultsService : import Excel/CSV avec rapport détaillé,
- * normalisation téléphone, détection de doublons — plutôt que de dupliquer
- * cette logique, les deux classes partagent PhoneNumberService.
+ * l'utilisateur (voir AUDIT.md) : import Excel/CSV avec rapport détaillé,
+ * normalisation téléphone (partagée avec PhoneNumberService), détection de
+ * doublons.
  */
 class ContactService
 {

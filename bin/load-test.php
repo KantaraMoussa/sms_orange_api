@@ -45,8 +45,7 @@ try {
         $suffix = str_pad((string) $i, 8, '0', STR_PAD_LEFT);
         $rows[] = [
             'destinataire' => '6' . substr($suffix, 0, 8),
-            'contenu' => "Bonjour étudiant $i, votre moyenne du semestre est disponible.",
-            'matricule' => "LOAD$i",
+            'contenu' => "Bonjour, ceci est un message de test #$i.",
         ];
     }
     $importResult = $queue->addRecipients($campaignId, $rows);
@@ -61,7 +60,7 @@ try {
     $queue->queueCampaign($campaignId, dryRun: true);
 
     $explain = $pdo->query(
-        "EXPLAIN ANALYZE SELECT id, destinataire, contenu, matricule, tentative_count
+        "EXPLAIN ANALYZE SELECT id, destinataire, contenu, tentative_count
          FROM messages WHERE campagne_id = $campaignId AND statut = 'en_attente'
          ORDER BY id LIMIT $batchSize FOR UPDATE SKIP LOCKED"
     )->fetchAll(PDO::FETCH_COLUMN);

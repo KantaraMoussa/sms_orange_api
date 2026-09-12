@@ -15,7 +15,7 @@ use PHPUnit\Framework\TestCase;
  * required for these tests to pass.
  *
  * Covers cahier des charges §59: création de campagne, sélection des
- * étudiants, idempotence, progression, pause/reprise, annulation.
+ * destinataires, idempotence, progression, pause/reprise, annulation.
  */
 class CampaignQueueServiceTest extends TestCase
 {
@@ -55,7 +55,6 @@ class CampaignQueueServiceTest extends TestCase
             $rows[] = [
                 'destinataire' => $prefix . str_pad((string) $i, 5, '0', STR_PAD_LEFT),
                 'contenu' => "Message de test #$i",
-                'matricule' => "TEST$i",
             ];
         }
         return $rows;
@@ -75,7 +74,7 @@ class CampaignQueueServiceTest extends TestCase
     {
         $id = $this->makeCampaign();
         $rows = $this->fakeRows(5);
-        $rows[] = ['destinataire' => '12345', 'contenu' => 'invalide', 'matricule' => 'BAD']; // invalid phone
+        $rows[] = ['destinataire' => '12345', 'contenu' => 'invalide']; // invalid phone
         $duplicateOfFirst = $rows[0];
 
         $result = $this->queue->addRecipients($id, $rows);

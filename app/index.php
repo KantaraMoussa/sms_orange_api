@@ -72,16 +72,6 @@ require_once('../server/infosAPI.php');
                     </li>
 
                     <li class="pc-item pc-caption">
-                        <label>Résultats académiques</label>
-                        <i class="ph ph-graduation-cap"></i>
-                    </li>
-                    <li class="pc-item"><a href="?page=resultats" class="pc-link">
-                            <span class="pc-micon">
-                                <i class="ph ph-graduation-cap"></i>
-                            </span>
-                            <span class="pc-mtext">Envoyer les résultats</span></a></li>
-
-                    <li class="pc-item pc-caption">
                         <label>Contacts</label>
                         <i class="ph ph-address-book"></i>
                     </li>
@@ -312,8 +302,6 @@ require_once('../server/infosAPI.php');
             if (isset($_GET['page'])) {
                 if ($_GET['page'] == "dashdoards") {
                     require_once('./templete/dashboard.php');
-                } else   if ($_GET['page'] == "resultats") {
-                    require_once('./templete/resultats.php');
                 } else   if ($_GET['page'] == "contacts") {
                     require_once('./templete/contacts.php');
                 } else   if ($_GET['page'] == "groupe") {

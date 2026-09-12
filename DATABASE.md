@@ -24,15 +24,15 @@ PostgreSQL, base **`apiSms`** — c'est la seule base réellement utilisée par 
 | contenu | text | corps du message |
 | destinataire | varchar | format canonique `+224XXXXXXXXX` (voir `PhoneNumberService`) |
 | statut | varchar | `en_attente`/`en_cours`/`envoye`/`echec`/`annule` |
-| matricule, nom, prenom | varchar | identité du destinataire, génériques (alimentés par l'import Excel), optionnels |
-| unique_key | varchar | `sha256(campagne_id\|téléphone\|matricule)`, unique (idempotence) |
+| nom, prenom | varchar | identité du destinataire, génériques (alimentés par l'import Excel), optionnels |
+| unique_key | varchar | `sha256(campagne_id\|téléphone)`, unique (idempotence) — un même numéro ne peut apparaître qu'une fois par campagne |
 | tentative_count | integer | nombre d'essais d'envoi |
 | error_code, error_message | | voir la classification dans `SmsErrorClassifier` |
 | locked_at | timestamp | posé pendant le traitement d'un lot |
 | date_traitement | timestamp | quand le statut final (`envoye`/`echec`) a été atteint |
 | provider_message_id | varchar | référence retournée par Orange, si disponible |
 
-Index : `idx_messages_campagne_statut (campagne_id, statut)` (claim de lot), `idx_messages_matricule`.
+Index : `idx_messages_campagne_statut (campagne_id, statut)` (claim de lot).
 
 ### `sms`, `sms_destinataires`
 Présentes en base depuis l'origine du projet, **jamais utilisées par le code applicatif** (ni avant ni après cette refonte — le modèle `campagne`/`messages` a été préféré). Conservées telles quelles, non supprimées.
@@ -52,7 +52,7 @@ Table présente depuis l'origine, vide jusqu'à la Phase 37/38 (authentification
 `filename` (PK), `applied_at` — suivi des migrations déjà appliquées par `database/migrate.php`.
 
 ### `activity_logs`
-Journal d'activité / piste d'audit (§35/§64) : `user_nom`, `action` (connexion/deconnexion/creation_campagne/lancement_campagne/pause_campagne/reprise_campagne/annulation_campagne/retry_campagne/import_resultats/creation_campagne_resultats/creation_modele/modification_modele/duplication_modele/archivage_modele), `campagne_id` (FK, nullable), `details`, `created_at`. Alimenté par `ActivityLogger`, consulté depuis `?page=journal`.
+Journal d'activité / piste d'audit (§35/§64) : `user_nom`, `action` (connexion/deconnexion/creation_campagne/lancement_campagne/pause_campagne/reprise_campagne/annulation_campagne/retry_campagne/import_contacts/creation_contact/suppression_contact/creation_groupe/suppression_groupe/creation_campagne_groupe/creation_modele/modification_modele/duplication_modele/archivage_modele/desarchivage_modele), `campagne_id` (FK, nullable), `details`, `created_at`. Alimenté par `ActivityLogger`, consulté depuis `?page=journal`.
 
 ### `contacts_v2`, `groupes_v2`, `groupe_contacts_v2`, `imports_contacts`
 Module Contacts/Groupes (§22-24), recréé le 2026-09-12 après une suppression (§004) puis une nouvelle demande explicites de l'utilisateur — schéma dédié (suffixe `_v2`) plutôt que de réutiliser les anciens noms `contacts`/`groupes`, pour ne jamais confondre avec l'historique de suppression documenté dans `archive/README.md`.
@@ -70,32 +70,12 @@ Un contact est unique par téléphone (index unique) : un import ou un ajout ave
 Centre de notifications (§73) : `type` (`solde_faible`/`campagne_terminee`/`campagne_partielle`/`import_termine`), `titre`, `message`, `campagne_id` (FK, nullable), `lu`, `created_at`. Alimentée par `NotificationService`, affichée dans la cloche de l'en-tête (`app/index.php`). Les notifications de type solde/campagne sont dédupliquées (`createUnlessRecentDuplicate()`) pour ne jamais spammer.
 
 ### `sms_templates`
-Bibliothèque de modèles SMS réutilisables (§25) : `nom`, `categorie` (resultats_academiques/rappel/information/notification/absence/paiement), `contenu` (variables `{{...}}` supportées, rendues par `MessageTemplateService`), `archive`, `created_by`, `created_at`, `updated_at`. Gérée depuis `?page=modeles` ; chargeable directement dans l'éditeur de message de `?page=resultats`.
-
-### `resultats_academiques`
-Reconstruction structurée du module "résultats académiques" (cahier des charges V2.0, §3-4/§16/§61-64), après la suppression du 2026-09-08 (voir ci-dessous) de l'ancienne version en texte libre.
-
-| Colonne | Type | Note |
-|---|---|---|
-| id | serial PK | |
-| import_id | integer FK → imports_resultats | nullable |
-| matricule, nom, prenom | varchar | |
-| telephone | varchar(20) NOT NULL | format canonique `+224XXXXXXXXX` |
-| telephone_brut | varchar | valeur brute avant normalisation, pour audit |
-| etablissement, session_academique, niveau, classe, programme, semestre | varchar | critères de filtrage (§3) |
-| moyenne, mention, rang, total_classe, credits, appreciation | varchar | valeurs affichées via les variables `{{moyenne}}`/`{{mention}}`/`{{rang}}`/`{{total}}`/`{{credits}}`/`{{appreciation}}` (voir `AcademicResultsService::toTemplateVars()` pour le mapping colonne → variable) |
-| statut | varchar | `actif` par défaut |
-| derniere_campagne_id | integer FK → campagne | posée par `AcademicResultsService::markCampaignForRows()` à la création d'une campagne ; sert à calculer `deja_envoye` (§17) par jointure sur `messages` |
-| created_at, updated_at | | |
-
-Un même `(matricule, session_academique, semestre)` est unique (index partiel) : un ré-import du même étudiant pour la même période **met à jour** la ligne existante au lieu d'en créer une deuxième.
-
-### `imports_resultats`
-Rapport de chaque import (§10/§23) : `filename`, `total_lignes`, `valides`, `invalides`, `doublons`, `errors_json` (liste `{ligne, erreur}`, téléchargeable en CSV depuis l'interface), `created_by`, `created_at`.
+Bibliothèque de modèles SMS réutilisables (§25) : `nom`, `categorie` (marketing/transactionnel/notification/rappel/alerte), `contenu` (variables `{{...}}` supportées, rendues par `MessageTemplateService`), `archive`, `created_by`, `created_at`, `updated_at`. Gérée depuis `?page=modeles`.
 
 ## Tables supprimées
 
-Le module Contacts/Groupes (`contacts`, `groupes`, `groupe_contacts`) a été supprimé le 2026-09-08 à la demande explicite de l'utilisateur (migration `004_remove_contacts_and_notes.sql`), de même que les colonnes `notes`/`niveaux` de `messages` (ancienne version en texte libre du module "résultats académiques"). Voir `archive/README.md` pour le détail de ce qui a été retiré du code applicatif en parallèle, et `resultats_academiques` ci-dessus pour la reconstruction structurée qui l'a remplacé.
+- Le module Contacts/Groupes d'origine (`contacts`, `groupes`, `groupe_contacts`) a été supprimé le 2026-09-08 à la demande explicite de l'utilisateur (migration `004_remove_contacts_and_notes.sql`), de même que les colonnes `notes`/`niveaux` de `messages`. Un module Contacts/Groupes a depuis été recréé sur un schéma différent (`contacts_v2`/`groupes_v2`, voir ci-dessus) suite à une nouvelle demande de l'utilisateur.
+- Le module "Résultats académiques" (`resultats_academiques`, `imports_resultats`, colonne `messages.matricule`) a été supprimé le 2026-09-12 à la demande explicite de l'utilisateur : SMS_ORANGE est un outil générique de campagnes SMS pour entreprises, pas un produit scolaire (migration `011_remove_academic_results.sql`). Voir `archive/README.md` et `AUDIT.md` pour le détail de ce qui a été retiré du code applicatif en parallèle.
 
 ## Migrations
 
@@ -112,13 +92,14 @@ Applique dans l'ordre alphabétique tout fichier `database/migrations/*.sql` non
 | `003_recipient_identity.sql` | Colonnes `nom`/`prenom` sur `messages` pour l'import Excel direct (additif). |
 | `004_remove_contacts_and_notes.sql` | **Destructive, exécutée avec accord explicite** : suppression de `contacts`/`groupes`/`groupe_contacts` et des colonnes `notes`/`niveaux` de `messages`. |
 | `005_login_lockout.sql` | Additif : `failed_attempts`/`locked_until` sur `utilisateurs` (verrouillage anti brute-force). |
-| `005_academic_results.sql` | Additif : crée `resultats_academiques` et `imports_resultats` (module Résultats académiques V2.0). |
-| `006_resultats_derniere_campagne.sql` | Additif : `resultats_academiques.derniere_campagne_id` (FK `campagne`), pour le statut "déjà envoyé" (§17). |
+| `005_academic_results.sql` | Additif à l'origine (crée `resultats_academiques`/`imports_resultats`) — **tables supprimées depuis par `011_remove_academic_results.sql`**. |
+| `006_resultats_derniere_campagne.sql` | Additif à l'origine (`resultats_academiques.derniere_campagne_id`) — **colonne/table supprimées depuis par `011_remove_academic_results.sql`**. |
 | `007_activity_logs.sql` | Additif : crée `activity_logs` (journal d'activité / audit trail, §35/§64). |
 | `008_sms_templates.sql` | Additif : crée `sms_templates` (bibliothèque de modèles SMS réutilisables, §25). |
 | `009_contacts_groups.sql` | Additif : recrée `contacts_v2`/`groupes_v2`/`groupe_contacts_v2`/`imports_contacts` (§22-24). |
 | `010_notifications.sql` | Additif : crée `notifications` (centre de notifications, §73). |
+| `011_remove_academic_results.sql` | **Destructive, exécutée avec accord explicite** : suppression de `resultats_academiques`/`imports_resultats` et de la colonne `messages.matricule` — le produit devient un outil générique entreprises, plus scolaire. |
 
 > **Note** : les deux migrations ci-dessus portent le même préfixe `005_` — créées en parallèle par deux sessions de travail différentes le même jour. Sans conséquence pratique : `schema_migrations` suit chaque fichier par son nom complet (pas seulement le préfixe), les deux ont été appliquées sans conflit (tables distinctes), et `database/migrate.php` les trie par ordre alphabétique complet. Laissé tel quel plutôt que renommé, pour ne pas risquer de perturber le suivi déjà enregistré sur la base de production.
 
-Pour une nouvelle migration : créer `011_....sql` (préfixe numérique croissant), relancer `php database/migrate.php`.
+Pour une nouvelle migration : créer `012_....sql` (préfixe numérique croissant), relancer `php database/migrate.php`.

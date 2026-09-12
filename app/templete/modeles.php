@@ -1,12 +1,11 @@
 <?php
 $templates = smsTemplates()->all(true);
 $categoryLabels = [
-    'resultats_academiques' => 'Résultats académiques',
-    'rappel' => 'Rappel',
-    'information' => 'Information',
+    'marketing' => 'Marketing',
+    'transactionnel' => 'Transactionnel',
     'notification' => 'Notification',
-    'absence' => 'Absence',
-    'paiement' => 'Paiement',
+    'rappel' => 'Rappel',
+    'alerte' => 'Alerte',
 ];
 ?>
 <div class="row mt-3">
@@ -22,7 +21,7 @@ $categoryLabels = [
                         <thead><tr><th>Nom</th><th>Catégorie</th><th>Aperçu</th><th>Statut</th><th>Actions</th></tr></thead>
                         <tbody>
                         <?php if (empty($templates)): ?>
-                            <tr><td colspan="5" class="text-center text-muted p-3">Aucun modèle. Créez-en un pour le réutiliser dans l'écran Résultats académiques.</td></tr>
+                            <tr><td colspan="5" class="text-center text-muted p-3">Aucun modèle. Créez-en un pour le réutiliser dans vos campagnes.</td></tr>
                         <?php else: foreach ($templates as $t): ?>
                             <tr class="<?= $t['archive'] === 't' || $t['archive'] === true ? 'text-muted' : '' ?>">
                                 <td><?= htmlspecialchars($t['nom']) ?></td>

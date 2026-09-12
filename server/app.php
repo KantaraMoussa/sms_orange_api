@@ -68,10 +68,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_campagne'])) {
     }
 }
 // Import direct depuis un fichier Excel (.xlsx) : chaque ligne est déjà un
-// message complet et prêt à l'envoi (nom, prenom, matricule, telephone,
-// message) — pas de consolidation nécessaire, contrairement à l'import CSV
-// des résultats bruts ci-dessus. Une ligne importée = un destinataire de
-// campagne (§59 : import massif des étudiants).
+// message complet et prêt à l'envoi (nom, prenom, telephone, message).
+// Une ligne importée = un destinataire de campagne (§59 : import massif).
 if (isset($_POST['import_excel_recipients']) && isset($_FILES['excelFile']) && isset($_POST['campagne_id'])) {
     $campagneId = (int) $_POST['campagne_id'];
     $campagne = getSingleCampagne($campagneId);
@@ -115,12 +113,12 @@ if (isset($_POST['import_excel_recipients']) && isset($_FILES['excelFile']) && i
     // Repère les colonnes par leur en-tête (ordre libre), plutôt que par position fixe.
     $headers = array_map(fn($h) => strtolower(trim((string) $h)), array_shift($data));
     $colIndex = array_flip($headers);
-    $required = ['nom', 'prenom', 'matricule', 'telephone', 'message'];
+    $required = ['nom', 'prenom', 'telephone', 'message'];
     $missingCols = array_diff($required, array_keys($colIndex));
 
     if (!empty($missingCols)) {
         $_SESSION['class'] = "alert alert-danger";
-        $_SESSION['message'] = "❌ Colonnes manquantes dans le fichier : " . implode(', ', $missingCols) . ". Attendu : nom, prenom, matricule, telephone, message.";
+        $_SESSION['message'] = "❌ Colonnes manquantes dans le fichier : " . implode(', ', $missingCols) . ". Attendu : nom, prenom, telephone, message.";
         redirectBack();
         exit;
     }
@@ -130,7 +128,6 @@ if (isset($_POST['import_excel_recipients']) && isset($_FILES['excelFile']) && i
         $rows[] = [
             'nom' => trim((string) ($line[$colIndex['nom']] ?? '')),
             'prenom' => trim((string) ($line[$colIndex['prenom']] ?? '')),
-            'matricule' => trim((string) ($line[$colIndex['matricule']] ?? '')),
             'destinataire' => trim((string) ($line[$colIndex['telephone']] ?? '')),
             'contenu' => trim((string) ($line[$colIndex['message']] ?? '')),
         ];
@@ -186,159 +183,6 @@ if (isset($_POST['retry_campagne_failures'])) {
     activityLog()->log('retry_campagne', $campagneId, $actor, "$n message(s) remis en file");
     $_SESSION['class'] = "alert alert-success";
     $_SESSION['message'] = "🔁 $n échec(s) remis en file d'attente.";
-    header("Location: ../app/index.php?page=campgagne&details=$campagneId");
-    exit;
-}
-
-// ------------------------------------------------------------------
-// Résultats académiques (cahier des charges V2.0, §3-4, §16, §61-64) :
-// import structuré (Excel/CSV) puis génération d'une campagne consolidée
-// via le moteur existant (campaignQueue()), une fois le message rendu par
-// MessageTemplateService à partir du modèle + des données de chaque étudiant.
-// ------------------------------------------------------------------
-
-if (isset($_POST['import_resultats']) && isset($_FILES['resultatsFile'])) {
-    $file = $_FILES['resultatsFile'];
-    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-    $maxSize = 15 * 1024 * 1024; // 15 Mo
-
-    if ($file['error'] !== UPLOAD_ERR_OK || !in_array($ext, ['xlsx', 'xls', 'csv'], true) || $file['size'] > $maxSize) {
-        $_SESSION['class'] = "alert alert-danger";
-        $_SESSION['message'] = "❌ Fichier invalide : un .xlsx, .xls ou .csv de moins de 15 Mo est attendu.";
-        redirectBack();
-        exit;
-    }
-
-    try {
-        $report = academicResults()->importFile($file['tmp_name'], $ext, $actor);
-        activityLog()->log('import_resultats', null, $actor, "{$report['valides']} valide(s)/{$report['invalides']} invalide(s)/{$report['doublons']} doublon(s), fichier {$file['name']}");
-        notifications()->create('import_termine', 'Import de résultats terminé', "{$report['valides']} valide(s), {$report['invalides']} invalide(s), {$report['doublons']} doublon(s) sur {$report['total']} ligne(s).");
-        $_SESSION['class'] = "alert alert-success";
-        $_SESSION['message'] = "✅ Import terminé ({$report['total']} ligne(s) analysée(s)) : {$report['valides']} valide(s), "
-            . "{$report['invalides']} invalide(s), {$report['doublons']} doublon(s)/mise(s) à jour. "
-            . ($report['invalides'] > 0 || $report['doublons'] > 0 ? "Voir le détail dans l'historique d'import ci-dessous." : "");
-    } catch (Exception $e) {
-        $_SESSION['class'] = "alert alert-danger";
-        $_SESSION['message'] = "❌ Échec de l'import : " . $e->getMessage();
-    }
-    header("Location: ../app/index.php?page=resultats");
-    exit;
-}
-
-if (isset($_POST['test_sms_resultats'])) {
-    $numero = trim($_POST['test_number'] ?? '');
-    $template = trim($_POST['message_template'] ?? '');
-    $phone = \App\Services\PhoneNumberService::normalize($numero);
-
-    if ($phone === null || $template === '') {
-        $_SESSION['class'] = "alert alert-danger";
-        $_SESSION['message'] = "❌ Numéro de test invalide ou message vide.";
-        redirectBack();
-        exit;
-    }
-
-    $filters = [
-        'session_academique' => trim($_POST['f_session'] ?? ''),
-        'niveau' => trim($_POST['f_niveau'] ?? ''),
-        'classe' => trim($_POST['f_classe'] ?? ''),
-        'programme' => trim($_POST['f_programme'] ?? ''),
-        'semestre' => trim($_POST['f_semestre'] ?? ''),
-        'exclude_already_sent' => !empty($_POST['exclude_already_sent']),
-        'exclude_ids' => array_filter(array_map('intval', explode(',', (string) ($_POST['excluded_ids'] ?? '')))),
-        'only_with_phone' => !empty($_POST['only_with_phone']),
-        'only_with_results' => !empty($_POST['only_with_results']),
-    ];
-    $sample = academicResults()->getSample($filters);
-    $templateVars = $sample !== null ? \App\Services\AcademicResultsService::toTemplateVars($sample) : [];
-    $rendered = \App\Services\MessageTemplateService::render($template, $templateVars);
-
-    try {
-        orangeSms()->sendSms($phone, '[TEST] ' . $rendered['message']);
-        $_SESSION['class'] = "alert alert-success";
-        $_SESSION['message'] = "✅ SMS de test envoyé à {$phone}.";
-    } catch (Exception $e) {
-        $_SESSION['class'] = "alert alert-danger";
-        $_SESSION['message'] = "❌ Échec de l'envoi du test : " . $e->getMessage();
-    }
-    redirectBack();
-    exit;
-}
-
-if (isset($_POST['create_resultats_campagne'])) {
-    $nom = trim($_POST['campagne_name'] ?? '');
-    $template = trim($_POST['message_template'] ?? '');
-    $baseFilters = [
-        'session_academique' => trim($_POST['f_session'] ?? ''),
-        'niveau' => trim($_POST['f_niveau'] ?? ''),
-        'classe' => trim($_POST['f_classe'] ?? ''),
-        'programme' => trim($_POST['f_programme'] ?? ''),
-        'semestre' => trim($_POST['f_semestre'] ?? ''),
-    ];
-    $excludedIds = array_filter(array_map('intval', explode(',', (string) ($_POST['excluded_ids'] ?? ''))));
-    $filters = $baseFilters + [
-        'exclude_already_sent' => !empty($_POST['exclude_already_sent']),
-        'exclude_ids' => $excludedIds,
-        'only_with_phone' => !empty($_POST['only_with_phone']),
-        'only_with_results' => !empty($_POST['only_with_results']),
-    ];
-
-    if ($nom === '' || $template === '') {
-        $_SESSION['class'] = "alert alert-warning";
-        $_SESSION['message'] = "Le nom de la campagne et le modèle de message sont obligatoires.";
-        redirectBack();
-        exit;
-    }
-
-    $rows = academicResults()->getMatching($filters);
-    if (empty($rows)) {
-        $_SESSION['class'] = "alert alert-warning";
-        $_SESSION['message'] = "Aucun étudiant ne correspond à ces critères.";
-        redirectBack();
-        exit;
-    }
-
-    // Vérification du solde avant création (§20/§27) : bloque si le solde Orange est insuffisant.
-    // maxAgeSeconds=0 force une lecture fraîche (pas le cache utilisé par l'aperçu en direct).
-    try {
-        $balance = orangeSms()->getBalance(0);
-        $available = (int) ($balance['availableUnits'] ?? 0);
-        if ($available > 0 && count($rows) > $available) {
-            $_SESSION['class'] = "alert alert-danger";
-            $_SESSION['message'] = "❌ Solde SMS insuffisant pour cette campagne (" . count($rows) . " nécessaires, {$available} disponibles).";
-            redirectBack();
-            exit;
-        }
-    } catch (Exception $e) {
-        $_SESSION['class'] = "alert alert-warning";
-        $_SESSION['message'] = "⚠️ Solde Orange non vérifiable pour le moment (" . $e->getMessage() . ").";
-    }
-
-    $campagneId = campaignQueue()->createCampaign(
-        $nom,
-        'Résultats académiques — ' . implode(' / ', array_filter($baseFilters)),
-        'resultats',
-        $actor,
-        50
-    );
-
-    $recipients = [];
-    foreach ($rows as $row) {
-        $rendered = \App\Services\MessageTemplateService::render($template, \App\Services\AcademicResultsService::toTemplateVars($row));
-        $recipients[] = [
-            'destinataire' => $row['telephone'],
-            'contenu' => $rendered['message'],
-            'matricule' => $row['matricule'],
-            'nom' => $row['nom'],
-            'prenom' => $row['prenom'],
-        ];
-    }
-    $result = campaignQueue()->addRecipients($campagneId, $recipients);
-    // Permet de répondre plus tard à "cet étudiant a-t-il déjà reçu ses résultats ?" (§17).
-    academicResults()->markCampaignForRows($campagneId, array_column($rows, 'id'));
-    activityLog()->log('creation_campagne_resultats', $campagneId, $actor, count($rows) . ' étudiant(s)');
-
-    $_SESSION['class'] = "alert alert-success";
-    $_SESSION['message'] = "✅ Campagne préparée : {$result['added']} destinataire(s) ajouté(s), {$result['duplicates']} déjà en file, {$result['invalid']} numéro(s) invalide(s). Vérifiez le journal puis lancez l'envoi.";
     header("Location: ../app/index.php?page=campgagne&details=$campagneId");
     exit;
 }
@@ -546,7 +390,7 @@ if (isset($_POST['remove_contact_from_group'])) {
 }
 
 // Envoie une campagne à tous les contacts d'un groupe (§24) — réutilise
-// entièrement le moteur de campagnes existant, comme les résultats académiques.
+// entièrement le moteur de campagnes existant.
 if (isset($_POST['send_to_group'])) {
     $groupeId = (int) ($_POST['groupe_id'] ?? 0);
     $message = trim($_POST['group_message'] ?? '');

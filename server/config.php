@@ -42,7 +42,7 @@ function getSingleCampagne($campagneId)
 }
 function getMessageCampagne($campagneId)
 {
-    $sql = "SELECT id, contenu, destinataire, date_envoi, statut, matricule, nom, prenom, error_code, error_message, tentative_count, date_traitement
+    $sql = "SELECT id, contenu, destinataire, date_envoi, statut, nom, prenom, error_code, error_message, tentative_count, date_traitement
                 FROM messages
                 WHERE campagne_id = :campagne_id
                 ORDER BY date_envoi DESC";

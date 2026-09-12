@@ -785,3 +785,36 @@ En touchant ce fichier, relecture complète déclenchée par prudence — a rév
 3. `app/health.php` rechargé avant/après correctif : avant, statut global `ERROR` permanent (erreur SQL visible dans le contenu de la page) ; après, plus aucune erreur "Call to undefined"/SQL, zéro erreur console/réseau (le 404 CSS mort a aussi disparu).
 
 **Résultat** : identité visuelle réelle en place (logo cohérent sur toutes les pages publiques et applicatives) ; la page de santé — outil censé garantir la confiance avant/pendant la production — ne ment plus en permanence sur l'état de l'application, ce qui aurait pu tromper un opérateur ou un moniteur externe le jour d'une vraie mise en ligne. Cahier des charges V2.0 : tous les écarts identifiés au fil des trois sessions sont désormais traités ; ne restent que des actions hors-code (régénération de secrets, renouvellement du contrat Orange, bascule finale `APP_ENV=production`).
+
+---
+
+# JOURNAL — SESSION 4 (2026-09-12) : pivot produit — suppression du module "Résultats académiques" et du champ "matricule"
+
+**Demande explicite de l'utilisateur** : « élimine tout ce qui est en rapport avec le résultat et le matricule aussi, c'est un projet global destiné aux entreprises pas que à l'école ou université ». Le module "Résultats académiques" avait été retiré une première fois le 2026-09-08 puis reconstruit le 2026-09-11 pour répondre à un cahier des charges orienté envoi de résultats scolaires (voir sessions précédentes). L'utilisateur clarifie ici que le positionnement produit définitif est un outil générique de campagnes SMS pour entreprises — le module scolaire n'a donc plus sa place, cette fois de façon permanente.
+
+**⚠️ Coordination multi-session** : au moment de cette demande, plusieurs sessions Claude Code actives ont été détectées sur le même dépôt, dont une (`sms-orange-9b`) qui a d'abord décrit être en train d'exécuter exactement les mêmes actions (renommages vers `archive/`, création de la même migration `011_remove_academic_results.sql`). Vérification faite via `git status`/horodatage des fichiers : les actions avaient déjà été réalisées par cette session-ci ; l'autre session a confirmé qu'elle n'avait rien exécuté elle-même (avait mal interprété un état déjà présent sur le disque partagé comme le sien) et s'est arrêtée sur cette tâche pour éviter toute collision. Aucune perte ni écrasement de travail.
+
+**Fichiers archivés** (`git mv`, historique préservé — voir `archive/README.md` pour le détail complet) :
+`app/templete/resultats.php`, `server/resultats_preview.php`, `server/resultats_list.php`, `server/resultats_export_errors.php`, `src/Services/AcademicResultsService.php`, `tests/Integration/AcademicResultsServiceTest.php`, `tests/Unit/AcademicResultsServiceMappingTest.php`.
+
+**Migration** (`database/migrations/011_remove_academic_results.sql`, **destructive, exécutée avec accord explicite**) : `DROP TABLE resultats_academiques`, `DROP TABLE imports_resultats`, `ALTER TABLE messages DROP COLUMN matricule`.
+
+**Fichiers modifiés** :
+- `app/index.php` — entrée de menu et route `resultats` retirées.
+- `config/services.php` — factory `academicResults()` retirée.
+- `server/app.php` — les trois handlers `import_resultats`/`test_sms_resultats`/`create_resultats_campagne` retirés (153 lignes) ; import Excel générique (`import_excel_recipients`) : colonne `matricule` retirée des colonnes requises/mappées ; commentaires mentionnant les "résultats académiques" mis à jour.
+- `server/config.php` — `getMessageCampagne()` ne sélectionne plus `matricule`.
+- `src/Services/CampaignQueueService.php` — `addRecipients()`/`claimBatch()` ne gèrent plus `matricule` ; **`unique_key` recalculé sur `campagne_id + téléphone` seul** (au lieu de `campagne_id + téléphone + matricule`) — un même numéro ne peut désormais apparaître qu'une seule fois par campagne, ce qui est le comportement attendu pour un outil générique (avant, le `matricule` permettait volontairement plusieurs lignes pour un même numéro, utile uniquement pour distinguer plusieurs bulletins/matières d'un même étudiant).
+- `src/Services/SmsTemplateService.php` — catégories de modèles remplacées par un jeu générique (`marketing`/`transactionnel`/`notification`/`rappel`/`alerte`, cahier des charges §31) au lieu de `resultats_academiques`/`absence`/`paiement`.
+- `app/templete/modeles.php`, `app/templete/detail-campagne.php` — libellés de catégories mis à jour ; colonne "Matricule" retirée du journal de campagne ; texte d'aide de l'import Excel mis à jour.
+- `bin/load-test.php` — génère des messages génériques au lieu de "Bonjour étudiant...", ne référence plus `matricule`.
+- `tests/Integration/CampaignQueueServiceTest.php`, `tests/Integration/SmsTemplateServiceTest.php` — retrait des références à `matricule`/catégories scolaires.
+- `ARCHITECTURE.md`, `DATABASE.md`, `README.md`, `DESIGN_SYSTEM.md`, `archive/README.md` — documentation mise à jour (sections du module retirées, migrations 005/006 annotées comme neutralisées par la 011, note de positionnement produit ajoutée).
+
+**Tests réalisés** :
+1. `php -l` sur tous les fichiers modifiés → aucune erreur.
+2. Suite PHPUnit complète → **83 tests, 164 assertions** (10 tests de moins qu'avant, correspondant exactement aux deux fichiers de test archivés), aucune régression sur le reste.
+3. Migration appliquée sur la vraie base `apiSms` (`php database/migrate.php`) → OK, colonne et tables confirmées supprimées.
+4. Recherche exhaustive (`grep -rln "matricule\|resultats_academique\|academicResults"`) sur tout le code actif (hors `archive/`/`vendor/`) → plus aucune occurrence fonctionnelle, seulement des commentaires déjà mis à jour.
+
+**Résultat** : SMS_ORANGE ne porte plus aucune trace fonctionnelle de son usage scolaire d'origine — le moteur de campagnes, les contacts/groupes, les modèles SMS et le centre de notifications restent entièrement génériques et utilisables par n'importe quelle entreprise, conformément au positionnement produit confirmé par l'utilisateur.

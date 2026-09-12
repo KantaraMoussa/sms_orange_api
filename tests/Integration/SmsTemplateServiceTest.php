@@ -52,7 +52,7 @@ class SmsTemplateServiceTest extends TestCase
 
     public function testDuplicateCreatesASeparateCopy(): void
     {
-        $id = $this->service->create('PHPUNITTPL-Original', 'information', 'Contenu original');
+        $id = $this->service->create('PHPUNITTPL-Original', 'notification', 'Contenu original');
 
         $copyId = $this->service->duplicate($id);
 

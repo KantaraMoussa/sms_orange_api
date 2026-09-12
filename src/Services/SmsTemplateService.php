@@ -12,7 +12,7 @@ use PDO;
  */
 class SmsTemplateService
 {
-    public const CATEGORIES = ['resultats_academiques', 'rappel', 'information', 'notification', 'absence', 'paiement'];
+    public const CATEGORIES = ['marketing', 'transactionnel', 'notification', 'rappel', 'alerte'];
 
     public function __construct(private PDO $pdo)
     {

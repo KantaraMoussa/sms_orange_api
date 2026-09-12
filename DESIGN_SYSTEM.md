@@ -74,4 +74,4 @@ Deux mécanismes, volontairement distincts :
 
 ## Responsive
 
-Le thème (Bootstrap 5 grid + sidebar collapsible) gère nativement le passage mobile : sidebar réduite en icône hamburger sous le seuil `lg`, cartes KPI empilées en une colonne, tableaux dans `table-responsive`. Vérifié à 390px de large (iPhone standard) sur les écrans Dashboard/Résultats/Campagnes/Modèles/Journal : aucun débordement horizontal constaté. Pour tout nouvel écran : toujours tester à une largeur ≤ 400px avant de considérer l'écran terminé.
+Le thème (Bootstrap 5 grid + sidebar collapsible) gère nativement le passage mobile : sidebar réduite en icône hamburger sous le seuil `lg`, cartes KPI empilées en une colonne, tableaux dans `table-responsive`. Vérifié à 390px de large (iPhone standard) sur les écrans Dashboard/Contacts/Campagnes/Modèles/Journal : aucun débordement horizontal constaté. Pour tout nouvel écran : toujours tester à une largeur ≤ 400px avant de considérer l'écran terminé.

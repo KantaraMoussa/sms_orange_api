@@ -100,7 +100,6 @@ $badgeClass = [
                                 <th>Nom</th>
                                 <th>Prénom</th>
                                 <th>Destinataire</th>
-                                <th>Matricule</th>
                                 <th>Statut</th>
                                 <th>Erreur</th>
                             </tr>
@@ -112,7 +111,6 @@ $badgeClass = [
                                 <td><?= htmlspecialchars($m['nom'] ?? '') ?></td>
                                 <td><?= htmlspecialchars($m['prenom'] ?? '') ?></td>
                                 <td><?= htmlspecialchars($m['destinataire']) ?></td>
-                                <td><?= htmlspecialchars($m['matricule'] ?? '') ?></td>
                                 <td><?= htmlspecialchars($m['statut']) ?></td>
                                 <td><?= htmlspecialchars($m['error_code'] ?? '') ?></td>
                             </tr>
@@ -141,7 +139,7 @@ $badgeClass = [
                     <div class="mb-3">
                         <label for="excelFile<?= $campagne['id'] ?>" class="form-label">Fichier Excel (.xlsx)</label>
                         <input class="form-control" type="file" id="excelFile<?= $campagne['id'] ?>" name="excelFile" accept=".xlsx,.xls" required>
-                        <small class="text-muted">⚠️ Première ligne = en-têtes, colonnes attendues (ordre libre) : <b>nom, prenom, matricule, telephone, message</b></small>
+                        <small class="text-muted">⚠️ Première ligne = en-têtes, colonnes attendues (ordre libre) : <b>nom, prenom, telephone, message</b></small>
                     </div>
                     <div class="d-flex justify-content-end">
                         <button type="button" class="btn btn-danger me-2" data-bs-dismiss="modal">Annuler</button>

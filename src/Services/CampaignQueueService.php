@@ -42,10 +42,11 @@ class CampaignQueueService
 
     /**
      * Adds recipients to a DRAFT campaign. Invalid phone numbers are rejected
-     * up front (§10); duplicates (same campaign+phone+matricule) are silently
-     * skipped via the unique_key index (§7 idempotence).
+     * up front (§10); duplicates (same campaign+phone) are silently skipped
+     * via the unique_key index (§7 idempotence) — a given phone number can
+     * only appear once per campaign.
      *
-     * @param array<array{destinataire:string, contenu:string, matricule?:string, nom?:string, prenom?:string}> $rows
+     * @param array<array{destinataire:string, contenu:string, nom?:string, prenom?:string}> $rows
      * @return array{added:int, duplicates:int, invalid:int}
      */
     public function addRecipients(int $campaignId, array $rows): array
@@ -55,8 +56,8 @@ class CampaignQueueService
         $invalid = 0;
 
         $insert = $this->pdo->prepare(
-            "INSERT INTO messages (campagne_id, contenu, destinataire, matricule, nom, prenom, statut, unique_key)
-             VALUES (:campagne_id, :contenu, :destinataire, :matricule, :nom, :prenom, 'en_attente', :unique_key)
+            "INSERT INTO messages (campagne_id, contenu, destinataire, nom, prenom, statut, unique_key)
+             VALUES (:campagne_id, :contenu, :destinataire, :nom, :prenom, 'en_attente', :unique_key)
              ON CONFLICT (unique_key) WHERE unique_key IS NOT NULL DO NOTHING"
         );
 
@@ -69,14 +70,12 @@ class CampaignQueueService
                 continue;
             }
 
-            $matricule = trim((string) ($row['matricule'] ?? ''));
-            $uniqueKey = hash('sha256', $campaignId . '|' . $phone . '|' . $matricule);
+            $uniqueKey = hash('sha256', $campaignId . '|' . $phone);
 
             $insert->execute([
                 ':campagne_id' => $campaignId,
                 ':contenu' => $contenu,
                 ':destinataire' => $phone,
-                ':matricule' => $matricule !== '' ? $matricule : null,
                 ':nom' => $row['nom'] ?? null,
                 ':prenom' => $row['prenom'] ?? null,
                 ':unique_key' => $uniqueKey,
@@ -154,7 +153,7 @@ class CampaignQueueService
         $this->pdo->beginTransaction();
 
         $stmt = $this->pdo->prepare(
-            "SELECT id, destinataire, contenu, matricule, tentative_count
+            "SELECT id, destinataire, contenu, tentative_count
              FROM messages
              WHERE campagne_id = :id AND statut = 'en_attente'
              ORDER BY id
