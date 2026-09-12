@@ -1035,4 +1035,33 @@ Nécessite de stocker le message brut (`campagne.message_template`, avec `{{vari
 2. Suite PHPUnit complète → **140 tests, 272 assertions** (134 existants + 6 nouveaux : fréquence invalide rejetée, champs et échéance correctement calculés, arrêt qui nettoie les champs, génération réelle pour "tous les contacts" avec personnalisation vérifiée et échéance du parent avancée, audience vide qui avance quand même l'échéance, campagne pas encore due laissée intacte), aucune régression.
 3. **Smoke test HTTP complet, sans jamais risquer un envoi réel** : composition d'une campagne hebdomadaire récurrente, bannière vérifiée, échéance reculée manuellement pour simuler le délai, génération de l'occurrence enfant vérifiée en base (message personnalisé correct, statut `QUEUED`/`en_attente` — jamais interrogée par un worker donc rien n'a réellement été envoyé), échéance du parent avancée de 7 jours, arrêt de la récurrence vérifié.
 
-**Résultat** : les campagnes peuvent maintenant se renouveler seules à intervalle régulier, avec ré-évaluation dynamique de l'audience et protection contre l'envoi automatique si le solde est insuffisant. Reste à faire côté Phase 2 : Crédits/facturation.
+**Résultat** : les campagnes peuvent maintenant se renouveler seules à intervalle régulier, avec ré-évaluation dynamique de l'audience et protection contre l'envoi automatique si le solde est insuffisant.
+
+---
+
+# JOURNAL — SESSION 13 (2026-09-13) : Phase 2 — Crédits/facturation (dernier point)
+
+**Demande** : dernier point de la Phase 2, interprétation laissée libre par l'utilisateur. Le cahier des charges d'origine précise lui-même : "Préparer une architecture compatible avec un futur système de recharge/paiement" — pas d'implémenter un vrai paiement. Aucune passerelle de paiement n'existe dans ce projet ; la recharge reste manuelle par un SUPER_ADMIN.
+
+**Découverte motivant la conception** : le solde Orange réel (`orangeSms()->getBalance()`) est **partagé entre toutes les organisations** de la plateforme (une seule clé API Orange, §59). Sans comptabilité interne séparée par organisation, rien n'empêchait une organisation d'épuiser ce solde partagé au détriment des autres — pas seulement une question de reporting, un vrai trou d'équité multi-tenant resté ouvert depuis la session 5.
+
+**Fichiers créés** :
+- `database/migrations/017_credits.sql` — `organizations.credits_balance` (défaut 100000, généreux pour ne bloquer aucune organisation existante) + table `credit_transactions` (ledger append-only : type credit/debit, montant, solde après, campagne liée).
+- `src/Services/CreditService.php` — `balance()`/`hasSufficientBalance()` (lecture), `credit()` (recharge manuelle, réservée SUPER_ADMIN au niveau du handler), `debitIfSufficient()` (contrôle préalable atomique avec verrouillage de ligne, utilisé par `insufficientBalanceMessage()`), `recordConsumption()` (enregistrement inconditionnel après un envoi Orange réel réussi — impossible de "annuler" un SMS déjà facturé par Orange si le ledger interne est à découvert ; un solde négatif reste volontairement visible plutôt que masqué).
+- `app/templete/credits.php` — solde et historique pour toute organisation ; formulaire de recharge (n'importe quelle organisation de la plateforme) visible seulement pour SUPER_ADMIN.
+- `tests/Integration/CreditServiceTest.php` — 10 tests.
+
+**Fichiers modifiés** :
+- `src/Services/CampaignQueueService.php` — `claimBatch()` sélectionne désormais `organization_id` ; `processRecipient()` appelle `recordConsumption()` uniquement après un envoi réel réussi (jamais en `dry_run`, vérifié explicitement par test — le chemin "envoi réel réussi" lui-même reste, comme le reste du pipeline d'envoi, intestable sans vraies conditions de production).
+- `server/config.php` — `insufficientBalanceMessage()` vérifie désormais DEUX soldes : Orange (partagé) ET crédits internes de l'organisation de la campagne.
+- `server/app.php` — nouveau handler `recharge_credits` (réservé SUPER_ADMIN, cible une organisation quelconque soumise par le formulaire — volontairement différent de `update_organisation`, qui ne cible jamais que sa propre organisation).
+- `src/Services/OrganizationService.php` — `all()` (liste non scopée, réservée aux usages plateforme).
+- `app/templete/detail-campagne.php` — le résumé "Avant de lancer" affiche aussi le solde de crédits de l'organisation et bloque le bouton si l'un OU l'autre solde est insuffisant.
+- `app/index.php` — lien de sidebar "Crédits SMS", route `?page=credits`.
+
+**Tests réalisés** :
+1. `php -l` sur tous les fichiers modifiés → aucune erreur.
+2. Suite PHPUnit complète → **150 tests, 295 assertions** (140 existants + 10 nouveaux), aucune régression.
+3. **Smoke test HTTP complet** : compte SUPER_ADMIN de test créé, recharge d'une organisation cible différente de la sienne vérifiée en base (solde + transaction), organisation cible confirmée voir son nouveau solde mais PAS le formulaire de recharge, tentative de recharge directe par un `OWNER` non-SUPER_ADMIN rejetée (HTTP 403).
+
+**Résultat** : les 6 points de la Phase 2 (Planification, Alertes, Segments dynamiques, Analytics avancés, Automatisations, Crédits/facturation) sont maintenant tous couverts, avec une isolation multi-tenant renforcée sur un point resté ouvert depuis le début du multi-tenant (le solde Orange partagé). Reste la Phase 3 de la feuille de route (API publique, API Keys, Webhooks, Doc API, Multi-provider SMS, White-label) si l'utilisateur souhaite continuer.
