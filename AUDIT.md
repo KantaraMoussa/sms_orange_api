@@ -923,3 +923,37 @@ Graphique de consommation de crédits volontairement **non ajouté** : aucune ta
 3. Capture d'écran réelle (Playwright, session HTTP authentifiée) d'une organisation fraîchement créée : les 4 cartes affichent bien 0/0/0/906, aucune erreur console.
 
 **Résultat** : les 10 points de la feuille de route utilisateur (Dashboard, Import, Contacts+groupes, Créateur de campagnes, Templates+variables, SMS de test, Envoi massif, Suivi temps réel, Retry, Rapports) sont maintenant tous couverts. Prochaine étape : phase 2 de la feuille de route (Planification, Automatisations, Segments dynamiques, Crédits/facturation, Alertes, Analytics avancés) ou phase 3 (API publique, API Keys, Webhooks, Doc API, Multi-provider SMS, White-label), selon la priorité que l'utilisateur donnera.
+
+---
+
+# JOURNAL — SESSION 9 (2026-09-12) : Phase 2 — Alertes configurables + Planification de campagnes
+
+**Demande explicite de l'utilisateur** : « PASSE À LA PHASE 2 » (Planification, Automatisations, Segments dynamiques, Crédits/facturation, Alertes, Analytics avancés). Traités dans cette session : Alertes et Planification (les deux plus rapides à livrer proprement) ; Segments dynamiques, Analytics avancés, Automatisations et Crédits/facturation restent à faire.
+
+**⚠️ Correctif externe intégré avant de commencer** : `src/Services/AuthService.php` avait été modifié sur disque par une session tierce (nom de session Remote Control "NotificationService foreign key violation", fermée avant de committer) — `check()` exige désormais `organization_id` en plus de `user_id` pour éviter qu'une session sans organisation coerce `organizationId()` à 0 (violation de FK). Vérifié en détail (diff isolé, seul point d'accès à ces clés de session, suite complète toujours verte) avant de committer (`8c93aaf`).
+
+## Alertes (§34)
+
+Le seuil d'alerte "solde SMS faible" était une variable d'environnement globale (`LOW_BALANCE_THRESHOLD`), incohérente en multi-tenant. Déplacé vers `organizations.low_balance_threshold` (migration `013_organization_alert_threshold.sql`, défaut 2000), éditable depuis Paramètres > Organisation.
+
+**Bug trouvé en construisant le formulaire séparé "Alertes"** (qui ne poste que `org_nom` + le seuil, pas les autres champs) : le handler `update_organisation` de `server/app.php` construisait l'update avec TOUS les champs `org_*`, donc enregistrer uniquement le seuil aurait silencieusement effacé secteur/téléphone/email/adresse/etc. à `null`. Corrigé pour n'inclure un champ que s'il a été réellement soumis.
+
+**Tests** : 4 nouveaux tests `OrganizationServiceTest` (dont un reproduisant exactement le bug ci-dessus) + smoke test HTTP (formulaire alertes seul → seuil changé, secteur intact ; solde réel 906 sous seuil 2000 → notification déclenchée ; sous seuil 500 → pas de notification).
+
+## Planification (§30)
+
+Avant cette session, une campagne ne pouvait qu'être envoyée immédiatement (`date_debut`/`date_fin` sur `campagne` sont des constantes cosmétiques fixées à la création, jamais utilisées pour planifier quoi que ce soit — confirmé par grep : aucune occurrence de `scheduled_at` nulle part dans le code actif avant cette session).
+
+Ajout : colonne `campagne.scheduled_at` (migration `014_campaign_scheduling.sql`), statut `SCHEDULED`, `CampaignQueueService::schedule()`/`unschedule()`/`promoteDueCampaigns()`. La promotion `SCHEDULED` → `QUEUED` se fait exclusivement en tâche de fond (le démon `bin/process-campaign.php --daemon`, déjà en boucle continue, l'appelle à chaque tour ; nouveau `bin/promote-scheduled-campaigns.php` pour un déploiement cron pur) — jamais depuis une requête HTTP, pour qu'un envoi programmé parte à l'heure même si personne n'a l'application ouverte.
+
+**⚠️ Bug de fuseau horaire trouvé en testant `promoteDueCampaigns()`** : le premier test avec une campagne "programmée dans le passé" (pour vérifier la promotion) échouait silencieusement — la campagne n'était jamais promue. Cause : PHP tourne par défaut sur `Europe/Berlin` dans cet environnement, mais la session PostgreSQL est en UTC (`SHOW timezone` = GMT) — exactement le même piège déjà documenté et corrigé pour `locked_until` dans `AuthService::attempt()`, mais réapparu ici sur un nouveau champ. Une heure programmée "+1h" en heure murale PHP était stockée en avance par rapport au vrai UTC, donc jamais "due". Corrigé à deux niveaux : (1) `server/app.php` interprète désormais la saisie `datetime-local` dans le fuseau horaire configuré de l'organisation (`organizations.fuseau_horaire`), pas celui du serveur ; (2) `CampaignQueueService::schedule()` convertit explicitement en UTC avant stockage. Nouvelle fonction `formatOrgDateTime()` (`server/config.php`) pour la conversion inverse à l'affichage, réutilisée dans `campagne.php` et `detail-campagne.php`.
+
+**Fichiers modifiés** : `src/Services/CampaignQueueService.php`, `server/app.php` (handlers `schedule_campagne`/`unschedule_campagne`, factorisation de la vérification de solde dans `insufficientBalanceMessage()` partagée avec `launch_campagne`), `server/config.php`, `app/templete/detail-campagne.php` (bouton "Programmer" + modal, bannière et actions pour l'état `SCHEDULED`), `app/templete/campagne.php` (date programmée affichée dans la liste), `bin/process-campaign.php` (le mode `--daemon` promeut à chaque itération), `DEPLOYMENT.md`.
+
+**Tests** : 4 nouveaux tests `CampaignQueueServiceTest` (dont celui qui a révélé le bug de fuseau horaire ci-dessus) + smoke test HTTP complet et sans jamais déclencher un envoi Orange réel : programmation avec une heure calculée pour correspondre exactement à l'équivalent UTC, valeur stockée vérifiée à la seconde près, avancement manuel du temps pour simuler l'échéance, promotion confirmée, traitement `dry_run` jusqu'à `COMPLETED` avec `provider_message_id = 'DRY-RUN'`, date passée rejetée, annulation de planification ramenant en `DRAFT`.
+
+**Tests réalisés (global)** :
+1. `php -l` sur tous les fichiers modifiés → aucune erreur.
+2. Suite PHPUnit complète → **116 tests, 222 assertions** (108 existants + 8 nouveaux), aucune régression.
+
+**Résultat** : les alertes et la planification correspondent maintenant au cahier des charges (§30, §34), avec deux bugs réels trouvés et corrigés en testant plutôt que supposés résolus (effacement silencieux de champs, dérive de fuseau horaire). Prochaine étape : Segments dynamiques, Analytics avancés, puis Automatisations et Crédits/facturation (plus gros chantiers, à cadrer plus précisément avec l'utilisateur — "Crédits/facturation" en particulier ne peut pas inclure un vrai paiement sans passerelle réelle).
