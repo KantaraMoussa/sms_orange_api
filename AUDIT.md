@@ -1007,3 +1007,32 @@ Ajout : colonne `campagne.scheduled_at` (migration `014_campaign_scheduling.sql`
 3. Capture d'écran réelle (Playwright) de la page Rapports avec une période personnalisée appliquée → filtre affiché correctement, aucune erreur console, aucune erreur PHP sur plusieurs combinaisons de filtres testées par requêtes directes.
 
 **Résultat** : la page Rapports permet maintenant de répondre à "combien de SMS envoyés cette semaine / ce mois / pour cette campagne précise", sans avoir cassé les usages existants (dashboard notamment, qui continue d'appeler les mêmes fonctions sans filtre). Reste à faire côté Phase 2 : Automatisations et Crédits/facturation — les deux plus gros chantiers, dont le second ne peut pas inclure de vrai paiement sans passerelle réelle et mériterait d'être cadré plus précisément avec l'utilisateur avant de commencer.
+
+---
+
+# JOURNAL — SESSION 12 (2026-09-12/13) : correctif systémique de fuseau horaire + Automatisations
+
+**Demande explicite de l'utilisateur** : « TU AS LE FEU VERT » (choisir moi-même l'interprétation d'"Automatisations" et de "Crédits/facturation").
+
+## Correctif systémique : fuseau horaire par défaut de PHP
+
+En testant `resolveDateRangePreset()` (ajouté en session 11), le préréglage "aujourd'hui" a échoué à 01h11 heure de Berlin — moment où PHP considère qu'on est déjà le 13 alors que PostgreSQL (session en UTC) était encore au 12. C'est la **4ᵉ fois** que cette même classe de bug apparaît (après `AuthService::locked_until` et `CampaignQueueService::schedule()`, sessions précédentes) : PHP tourne par défaut sur `Europe/Berlin` dans cet environnement, PostgreSQL stocke/compare tout en UTC. Plutôt qu'un 5ᵉ correctif ponctuel, `date_default_timezone_set('UTC')` a été ajouté une bonne fois pour toutes dans `config/bootstrap.php` (chargé par tous les points d'entrée). N'affecte pas l'affichage par fuseau d'organisation (`formatOrgDateTime()` etc.), qui précise toujours son fuseau cible explicitement. Suite complète toujours verte après coup (134 tests).
+
+## Automatisations (interprétation libre, feuille de route Phase 2)
+
+Non détaillé dans le cahier des charges d'origine — interprété comme des **campagnes récurrentes** (quotidien/hebdomadaire/mensuel), qui s'appuient directement sur l'infrastructure de planification de la session 9.
+
+**Stratégie** : `CampaignQueueService::configureRecurrence()` attache une règle de récurrence à une campagne existante SANS toucher à son propre cycle de vie (elle est lancée/planifiée manuellement une première fois comme d'habitude) — la récurrence ne gouverne que les occurrences futures. `processRecurringCampaigns()` (appelée par le même démon/cron que la planification) réévalue l'audience à chaque échéance (un segment peut inclure de nouveaux contacts ajoutés depuis la configuration de la règle), génère une nouvelle campagne enfant, et ne la lance automatiquement que si le solde suffit (§20) — sinon elle reste en `DRAFT`, visible, plutôt que d'échouer silencieusement. L'échéance du parent avance toujours, même en cas d'audience vide ou de groupe/segment supprimé depuis, pour ne jamais boucler indéfiniment sur le même contrôle.
+
+Nécessite de stocker le message brut (`campagne.message_template`, avec `{{variables}}`) sur la campagne elle-même — jusqu'ici, seul le message déjà rendu par destinataire était conservé (`messages.contenu`), insuffisant pour régénérer un message personnalisé à chaque cycle.
+
+**Fichiers créés** : `database/migrations/016_campaign_automation.sql`.
+
+**Fichiers modifiés** : `src/Services/CampaignQueueService.php` (`configureRecurrence`/`stopRecurrence`/`processRecurringCampaigns`/`spawnOccurrence`), `server/app.php` (récurrence configurée dans `create_campaign_recipients`, nouveau handler `stop_recurrence`), `app/templete/detail-campagne.php` (case à cocher + fréquence dans la modale de composition, bannière de statut avec bouton "Arrêter"), `app/templete/campagne.php` (badge 🔁 dans la liste), `bin/process-campaign.php` (le démon appelle aussi `processRecurringCampaigns()`), `bin/promote-scheduled-campaigns.php` (idem pour les déploiements cron purs), `DEPLOYMENT.md`.
+
+**Tests réalisés** :
+1. `php -l` sur tous les fichiers modifiés → aucune erreur.
+2. Suite PHPUnit complète → **140 tests, 272 assertions** (134 existants + 6 nouveaux : fréquence invalide rejetée, champs et échéance correctement calculés, arrêt qui nettoie les champs, génération réelle pour "tous les contacts" avec personnalisation vérifiée et échéance du parent avancée, audience vide qui avance quand même l'échéance, campagne pas encore due laissée intacte), aucune régression.
+3. **Smoke test HTTP complet, sans jamais risquer un envoi réel** : composition d'une campagne hebdomadaire récurrente, bannière vérifiée, échéance reculée manuellement pour simuler le délai, génération de l'occurrence enfant vérifiée en base (message personnalisé correct, statut `QUEUED`/`en_attente` — jamais interrogée par un worker donc rien n'a réellement été envoyé), échéance du parent avancée de 7 jours, arrêt de la récurrence vérifié.
+
+**Résultat** : les campagnes peuvent maintenant se renouveler seules à intervalle régulier, avec ré-évaluation dynamique de l'audience et protection contre l'envoi automatique si le solde est insuffisant. Reste à faire côté Phase 2 : Crédits/facturation.
