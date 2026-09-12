@@ -856,3 +856,27 @@ En touchant ce fichier, relecture complète déclenchée par prudence — a rév
 4. **Smoke test manuel de bout en bout** (serveur `php -S` local, cookies de session réels, nettoyé après coup) : inscription d'une organisation "Acme", création d'un contact et d'une campagne ; inscription d'une organisation "Beta" ; confirmé que Beta ne voit ni le contact ni la campagne d'Acme dans ses pages ; confirmé que la tentative de Beta de consulter ou de mettre en pause la campagne d'Acme via son `campagne_id` renvoie "Campagne introuvable" (404) alors qu'Acme y accède normalement.
 
 **Résultat** : le socle multi-tenant est en place et vérifié — pas seulement une colonne ajoutée, mais une isolation effective à chaque lecture/écriture, testée à la fois unitairement et en conditions réelles (deux organisations concurrentes, tentative de traversée explicite). Aucune régression sur les fonctionnalités mono-tenant existantes (comportement identique tant qu'une seule organisation existe). Prochaine étape de la feuille de route utilisateur : "Utilisateurs & rôles" (rôles fins par organisation, gestion d'équipe/invitations — actuellement seul `bin/create-user.php` permet d'ajouter un coéquipier).
+
+---
+
+# JOURNAL — SESSION 6 (2026-09-12) : rôles fins et gestion d'équipe par organisation
+
+**Demande explicite de l'utilisateur** : point 2 de la feuille de route fournie en session 5 — "Utilisateurs & rôles", juste après "Entreprises/organisations".
+
+**Stratégie** : la porte de rôle unique de `server/app.php` (une seule liste de rôles autorisée pour TOUTES les mutations) ne permettait pas de distinguer "peut envoyer des campagnes" de "peut gérer l'équipe/l'organisation" — exactement la distinction que demande le cahier des charges (§6 : ADMIN gère organisation/utilisateurs, CAMPAIGN_MANAGER gère contacts/campagnes/envois, ANALYST est lecture seule + rapports). Plutôt que de renommer les rôles existants (`OPERATOR` notamment, seul rôle "actif" avant cette session), ajout de `CAMPAIGN_MANAGER` et `ANALYST` en conservant `OPERATOR` pour compatibilité — les deux sont traités identiquement partout. Deux nouvelles constantes centralisent la décision (`AuthService::MUTATION_ROLES`, `MANAGEMENT_ROLES`) pour éviter que la logique de permission se disperse dans plusieurs listes en dur.
+
+**Fichiers créés** :
+- `app/templete/equipe.php` — page "Équipe" (liste des membres de l'organisation, ajout, changement de rôle en ligne, retrait).
+- `tests/Integration/AuthServiceTeamTest.php` — 9 tests (ajout de coéquipier, changement de rôle, retrait, et surtout la garde-fou "jamais retirer le dernier OWNER" testée à la fois par rétrogradation et par suppression, avec un scénario positif où un 2ᵉ OWNER existe).
+
+**Fichiers modifiés** :
+- `src/Services/AuthService.php` — `ROLES` étendu (`CAMPAIGN_MANAGER`, `ANALYST`) ; nouvelles constantes `MUTATION_ROLES`/`MANAGEMENT_ROLES` ; `createUser()` vérifie désormais lui-même l'unicité de l'email (`utilisateurs.email` est unique globalement, pas par organisation) au lieu de laisser remonter une `PDOException` brute — `registerOrganization()` simplifiée en conséquence (elle réutilisait la même vérification en double) ; nouvelles méthodes `usersInOrganization()`, `updateUserRole()`, `deleteUser()` avec garde-fou anti-"dernier OWNER".
+- `server/app.php` — porte de rôle en tête de fichier basée sur `MUTATION_ROLES` ; nouveaux handlers `create_team_member`/`update_team_member_role`/`delete_team_member` (réservés à `MANAGEMENT_ROLES`, auto-suppression bloquée) ; `update_organisation` gagne la même restriction (un `CAMPAIGN_MANAGER` pouvait auparavant passer la porte globale et modifier les paramètres de l'organisation — fermé ici).
+- `app/index.php` — lien de sidebar "Équipe" sous "Paramètres" ; route `?page=equipe`.
+
+**Tests réalisés** :
+1. `php -l` sur tous les fichiers modifiés → aucune erreur.
+2. Suite PHPUnit complète → **100 tests, 192 assertions** (91 existants + 9 nouveaux), aucune régression.
+3. **Smoke test manuel de bout en bout** (serveur `php -S` local) : création d'une organisation, ajout d'un coéquipier `CAMPAIGN_MANAGER` par le `OWNER`, tentative de rétrograder l'unique `OWNER` → rejetée avec le message attendu ; connexion en tant que `VIEWER` → page équipe sans le panneau de gestion, tentative directe de `create_team_member` → HTTP 403 (bloqué par la porte globale, VIEWER n'est même pas dans `MUTATION_ROLES`) ; connexion en tant que `CAMPAIGN_MANAGER` → `create_team_member` refusé (HTTP 403, message spécifique "seuls les administrateurs...") mais `create_contact` accepté normalement (302), confirmant la séparation mutation-métier / gestion d'équipe.
+
+**Résultat** : chaque organisation peut désormais composer sa propre équipe avec des rôles différenciés, sans qu'un rôle opérationnel (CAMPAIGN_MANAGER/OPERATOR) puisse toucher aux paramètres de l'organisation ou à la composition de l'équipe, et sans qu'une organisation puisse se retrouver sans propriétaire. Prochaine étape de la feuille de route utilisateur : Dashboard (déjà largement construit en session 3, à revérifier dans le contexte multi-tenant) puis Import Excel/CSV intelligent.
