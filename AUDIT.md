@@ -957,3 +957,32 @@ Ajout : colonne `campagne.scheduled_at` (migration `014_campaign_scheduling.sql`
 2. Suite PHPUnit complète → **116 tests, 222 assertions** (108 existants + 8 nouveaux), aucune régression.
 
 **Résultat** : les alertes et la planification correspondent maintenant au cahier des charges (§30, §34), avec deux bugs réels trouvés et corrigés en testant plutôt que supposés résolus (effacement silencieux de champs, dérive de fuseau horaire). Prochaine étape : Segments dynamiques, Analytics avancés, puis Automatisations et Crédits/facturation (plus gros chantiers, à cadrer plus précisément avec l'utilisateur — "Crédits/facturation" en particulier ne peut pas inclure un vrai paiement sans passerelle réelle).
+
+---
+
+# JOURNAL — SESSION 10 (2026-09-12) : Phase 2 — Segments dynamiques
+
+**Suite de la session 9** : troisième point de la Phase 2 (§13).
+
+**Stratégie** : `contacts_v2` n'a aujourd'hui aucun champ personnalisé (pas de "ville" comme dans l'exemple du cahier des charges) — les critères de segment sont donc limités aux colonnes réellement disponibles : recherche texte (nom/prénom/téléphone/email), statut, appartenance à un groupe, date d'ajout. Un segment stocke uniquement son critère (JSONB), jamais une copie de contacts — `SegmentService::resolveContacts()` réinterroge `contacts_v2` à chaque utilisation, donc un contact ajouté après la création du segment y apparaît automatiquement s'il correspond.
+
+**Fichiers créés** :
+- `src/Services/SegmentService.php` — CRUD + `resolveContacts()`/`countContacts()`/`previewCount()` (aperçu sans avoir sauvegardé) / `sampleContact()` (prévisualisation du message, même logique que `ContactService::sampleContact()`).
+- `app/templete/segments.php` — liste des segments avec compte de contacts recalculé à l'affichage, formulaire de création avec aperçu du nombre de contacts en direct.
+- `server/segment_tools.php` — endpoint AJAX en lecture seule pour cet aperçu.
+- `tests/Integration/SegmentServiceTest.php` — 10 tests.
+
+**Fichiers modifiés** :
+- `app/templete/detail-campagne.php` — troisième option d'audience "Un segment" dans la modale de composition (visible seulement si au moins un segment existe), en plus de "Tous mes contacts"/"Un groupe".
+- `server/app.php` — `create_campaign_recipients` résout l'audience via `segments()->resolveContacts()` quand `audience_type=segment` ; nouveaux handlers `create_segment`/`delete_segment`.
+- `server/campaign_tools.php` — paramètre `segment_id` pour la prévisualisation.
+- `config/services.php`, `app/index.php` (lien de sidebar sous "Contacts", route `?page=segments`).
+
+**Note méthodologique (pas un bug applicatif)** : plusieurs échecs HTTP 419 rencontrés en testant manuellement se sont révélés être une erreur de mon script de test (requêtes Python `urllib.request` sans en-tête `Content-Type: application/x-www-form-urlencoded` explicite, donc `$_POST` vide côté PHP) — reproduit, compris et contourné ; `curl` (qui fixe cet en-tête automatiquement) n'a jamais été affecté. Aucune conséquence sur le code livré.
+
+**Tests réalisés** :
+1. `php -l` sur tous les fichiers modifiés → aucune erreur.
+2. Suite PHPUnit complète → **126 tests, 242 assertions** (116 existants + 10 nouveaux), aucune régression.
+3. Smoke test HTTP complet : création d'un segment (« recherche = Conakry ») sur 2 contacts dont 1 seul correspond, aperçu en direct confirmé (1), utilisé comme audience de campagne → vérifié en base que seul le contact correspondant a été ajouté, avec son message personnalisé ; suppression du segment vérifiée.
+
+**Résultat** : les segments dynamiques fonctionnent comme troisième mode de ciblage de campagne, à parité avec "tous les contacts" et "un groupe" (même moteur de rendu de variables, même aperçu, même compteur SMS). Reste à faire côté Phase 2 : Analytics avancés, Automatisations, Crédits/facturation.
