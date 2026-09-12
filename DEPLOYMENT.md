@@ -42,4 +42,19 @@ Aucune stratégie de sauvegarde PostgreSQL automatisée n'est fournie par ce dé
 
 ## Health check
 
-Non implémenté à ce stade (cahier des charges §47). À construire : une page qui vérifie la connexion DB (`db()->query('SELECT 1')`), l'authentification Orange (`orangeSms()->getBalance()`), et l'inscriptible de `storage/`.
+`app/health.php` (cahier des charges §47) — 8 vérifications (Système/PHP, Base de données, API Orange, Fichiers/storage, Configuration/.env, File d'attente, Session utilisateur, Cache des jetons Orange, Dernière synchronisation Orange), chacune `OPERATIONAL`/`WARNING`/`ERROR`. Sortie JSON disponible (`?format=json`, HTTP 503 si `ERROR`) pour une supervision externe — **vérifier après toute modification de ce fichier qu'aucun check ne référence une table/méthode inexistante** (trois cas réels trouvés et corrigés le 2026-09-12 : `sync_log` n'existe pas, `AuthService::getCurrentUser()` n'existe pas, `cache()` n'existe pas — voir AUDIT.md).
+
+## Checklist avant mise en ligne réelle
+
+- [ ] `APP_ENV=production` et `APP_DEBUG=false` dans `.env` (actuellement `development`/`true` — volontaire pendant le développement, `health.php` le signale en `WARNING`).
+- [ ] `display_errors=Off` / `log_errors=On` dans le `php.ini` du serveur.
+- [ ] Régénérer le secret client Orange et le mot de passe PostgreSQL (compromis dans l'historique git, voir SECURITY.md) — indépendant du code, à faire dès que possible.
+- [ ] Vérifier/renouveler le contrat SMS Orange (`health.php` a signalé un statut `EXPIRED` pendant le développement — à confirmer avant tout envoi réel).
+- [ ] Supprimer le compte de test `admin@test.local` une fois un vrai compte créé (`bin/create-user.php`).
+- [ ] `composer install --no-dev` (pas de PHPUnit ni ses dépendances en production).
+- [ ] `php database/migrate.php` sur la base de production.
+- [ ] Lancer `php app/health.php?format=json` (ou visiter la page) et confirmer `"status": "OPERATIONAL"` (les `WARNING` ci-dessus sont attendus tant que les points précédents ne sont pas traités).
+- [ ] Mettre en place le worker de production (`bin/process-campaign.php --daemon`, voir ci-dessus) plutôt que de dépendre du worker AJAX navigateur.
+- [ ] Mettre en place une sauvegarde `pg_dump` régulière (voir ci-dessous).
+
+Identité visuelle : logo/favicon réels en place depuis le 2026-09-12 (`assets/images/sms-orange-logo.svg`) — plus de placeholder générique du thème.

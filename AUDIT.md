@@ -760,3 +760,28 @@ Trouvé en testant un groupe fraîchement créé (0 membre) : erreur JS `Cannot 
 3. Données de test nettoyées après vérification.
 
 **Résultat** : les trois derniers écarts identifiés par rapport au cahier des charges V2.0 (centre de notifications, module Contacts/Groupes, finalisation accessibilité/design system/responsive/sélection massive/test de charge) sont désormais tous traités. Restent uniquement, comme signalé précédemment : un vrai logo, et la bascule `APP_ENV=production`/`APP_DEBUG=false` le jour du déploiement réel.
+
+## Suite session 3 (2026-09-12, fin) : identité visuelle (logo réel) + 3 bugs trouvés dans `health.php`
+
+**Objectif** : dernier point demandé, « pas de vrai logo » — création d'une identité visuelle réelle (l'application utilisait encore le favicon générique bleu du thème "Gradient Able", jamais remplacé malgré le rebranding de Phase 67).
+
+**Fichiers créés** : `assets/images/sms-orange-logo.svg` — icône bulle de conversation, dégradé orange de marque (`#ff7900`→`#ff9e40`), trois points blancs (symbole SMS universel), lisible à toute taille (favicon 16px comme logo 64px).
+
+**Fichiers modifiés** : `assets/images/favicon.svg` (remplace le gribouillis bleu générique) ; `index.html` (logo dans la navbar + suppression d'une image de démo orpheline sans alt dans le hero) ; `app/index.php` (logo dans le brand du sidebar et du header) ; `app/login.php`, `app/health.php` (logo/favicon ajoutés — ces deux pages n'avaient jamais de favicon).
+
+### 🐛 Trois bugs réels trouvés dans `app/health.php` en ajoutant simplement une balise favicon
+En touchant ce fichier, relecture complète déclenchée par prudence — a révélé que la page de santé (livrée en Phase 47, cf. plus haut) avait été étendue **après coup, hors du suivi git normal** (un seul commit historique sur ce fichier, antérieur à cette session) avec des vérifications supplémentaires jamais exercées :
+1. **`Session utilisateur`** appelait `auth()->getCurrentUser()` — méthode inexistante (la vraie est `user()`). Ce check renvoyait `ERROR` à chaque chargement, quel que soit l'état réel de la session.
+2. **`Cache (taux de hit)`** appelait `cache()`, une fonction qui n'a jamais existé dans ce projet (aucune couche de cache générique). Techniquement rattrapée par un `catch` interne donc pas fatale, mais toujours `WARNING` avec un message trompeur.
+3. **`Dernière synchronisation`** interrogeait `SELECT ... FROM sync_log`, une table qui n'existe pas dans le schéma. Cette erreur SQL faisait passer le **statut global de la page à `ERROR` en permanence**, y compris via `?format=json` (code HTTP 503) — un moniteur externe de disponibilité aurait vu l'application "en panne" 24h/24 alors qu'elle fonctionne normalement.
+
+**Corrigés** : (1) `user()` au lieu de `getCurrentUser()` ; (2) le check "Cache" rapporte désormais l'état réel des deux caches existants (`storage/cache/orange_token.json`/`orange_balance.json`, âge en secondes) au lieu d'un concept fictif ; (3) le check "Dernière synchronisation Orange" utilise l'horodatage du cache de solde (mis à jour uniquement après un appel Orange réellement réussi) au lieu de la table inexistante. Un quatrième problème mineur corrigé au passage : un lien CSS mort (`assets/css/plugins/fontawesome.min.css`, 404 silencieux, jamais utilisé sur cette page) pointait vers un chemin qui n'a jamais existé — corrigé vers le vrai fichier (`assets/fonts/fontawesome.css`).
+
+**Fichiers modifiés** : `DEPLOYMENT.md` — section "Health check" corrigée (indiquait à tort "non implémenté" alors qu'il l'était depuis la Phase 47) + nouvelle checklist de mise en ligne consolidant tous les points restants identifiés au fil des sessions (APP_ENV/APP_DEBUG, secrets à régénérer, contrat Orange, compte de test à supprimer, etc.).
+
+**Tests réalisés** :
+1. Suite PHPUnit complète → **93 tests, 189 assertions**, aucune régression.
+2. Vérification navigateur réelle (Playwright, captures d'écran) : logo visible et cohérent sur la page d'accueil publique, la page de connexion, le sidebar/header de l'application → confirmé visuellement, pas seulement par la présence de la balise `<img>`.
+3. `app/health.php` rechargé avant/après correctif : avant, statut global `ERROR` permanent (erreur SQL visible dans le contenu de la page) ; après, plus aucune erreur "Call to undefined"/SQL, zéro erreur console/réseau (le 404 CSS mort a aussi disparu).
+
+**Résultat** : identité visuelle réelle en place (logo cohérent sur toutes les pages publiques et applicatives) ; la page de santé — outil censé garantir la confiance avant/pendant la production — ne ment plus en permanence sur l'état de l'application, ce qui aurait pu tromper un opérateur ou un moniteur externe le jour d'une vraie mise en ligne. Cahier des charges V2.0 : tous les écarts identifiés au fil des trois sessions sont désormais traités ; ne restent que des actions hors-code (régénération de secrets, renouvellement du contrat Orange, bascule finale `APP_ENV=production`).

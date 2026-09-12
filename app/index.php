@@ -56,7 +56,8 @@ require_once('../server/infosAPI.php');
     <nav class="pc-sidebar">
         <div class="navbar-wrapper">
             <div class="m-header">
-                <a href="index.php?page=dashdoards" class="b-brand text-primary">
+                <a href="index.php?page=dashdoards" class="b-brand text-primary d-flex align-items-center gap-2">
+                    <img src="../assets/images/sms-orange-logo.svg" alt="" width="28" height="28" />
                     <span class="fw-bold fs-4">SMS<span class="text-dark text-opacity-75">_ORANGE</span></span>
                 </a>
             </div>
@@ -142,7 +143,8 @@ require_once('../server/infosAPI.php');
     <!-- [ Header Topbar ] start -->
     <header class="pc-header">
         <div class="m-header">
-            <a href="index.php?page=dashdoards" class="b-brand">
+            <a href="index.php?page=dashdoards" class="b-brand d-flex align-items-center gap-2">
+                <img src="../assets/images/sms-orange-logo.svg" alt="" width="26" height="26" />
                 <span class="fw-bold fs-4 text-white">SMS_ORANGE</span>
             </a>
         </div>

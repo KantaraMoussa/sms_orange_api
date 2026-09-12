@@ -123,17 +123,25 @@ $checks[] = check('File d\'attente (campagnes)', function () {
     if ($stuck > 0) {
         return ['WARNING', "{$stuck} campagne(s) en QUEUED/RUNNING depuis plus d'1h — vérifier qu'un worker tourne"];
     }
-    $pending = db()->query(
-        "SELECT COUNT(*) FROM campagne WHERE statut = 'PENDING'"
+    // Bug réel trouvé le 2026-09-12 : comptait statut = 'PENDING', une valeur
+    // qui n'existe pas dans ce projet (les statuts réels sont DRAFT/QUEUED/
+    // RUNNING/PAUSED/COMPLETED/PARTIAL/FAILED/CANCELLED) — "En attente"
+    // affichait donc toujours 0, quel que soit le nombre réel de brouillons.
+    $draft = db()->query(
+        "SELECT COUNT(*) FROM campagne WHERE statut = 'DRAFT'"
     )->fetchColumn();
     $processing = db()->query(
         "SELECT COUNT(*) FROM campagne WHERE statut IN ('QUEUED', 'RUNNING')"
     )->fetchColumn();
-    return ['OPERATIONAL', "En attente: {$pending} | En cours: {$processing} | Aucune campagne bloquée"];
+    return ['OPERATIONAL', "Brouillons: {$draft} | En cours: {$processing} | Aucune campagne bloquée"];
 }, '⏳');
 
 $checks[] = check('Session utilisateur', function () {
-    $user = auth()->getCurrentUser();
+    // Bug réel trouvé le 2026-09-12 : appelait auth()->getCurrentUser(), une
+    // méthode qui n'existe pas (la vraie méthode est user()) — ce check
+    // renvoyait donc systématiquement ERROR, quel que soit l'état réel de la
+    // session, ce qui masquait les vraies alertes de cette page.
+    $user = auth()->user();
     if (!$user) {
         return ['WARNING', 'Aucun utilisateur connecté (mais page accessible)'];
     }
@@ -141,40 +149,49 @@ $checks[] = check('Session utilisateur', function () {
     return ['OPERATIONAL', "Utilisateur: {$user['email']} | Rôle: {$role}"];
 }, '👤');
 
-$checks[] = check('Cache (taux de hit)', function () {
-    try {
-        $cache = cache();
-        $stats = $cache->getStats();
-        if (!empty($stats)) {
-            $hits = $stats['hits'] ?? 0;
-            $misses = $stats['misses'] ?? 0;
-            $total = $hits + $misses;
-            if ($total > 0) {
-                $rate = round($hits / $total * 100, 1);
-                if ($rate < 50) {
-                    return ['WARNING', "Taux de hit cache: {$rate}% ({$hits} hits / {$total} requêtes) — optimisable"];
-                }
-                return ['OPERATIONAL', "Taux de hit cache: {$rate}% ({$hits} hits / {$total} requêtes)"];
-            }
+$checks[] = check('Cache (jetons Orange)', function () {
+    // Bug réel trouvé le 2026-09-12 : appelait cache(), une fonction qui n'a
+    // jamais existé dans ce projet (pas de couche de cache générique) — le
+    // check tombait systématiquement dans le catch et affichait un WARNING
+    // trompeur ("cache non configuré"). L'application a bien deux caches
+    // réels et ciblés (jeton/solde Orange, OrangeSmsService) : ce check
+    // rapporte désormais leur état effectif au lieu d'un concept fictif.
+    $files = [
+        'jeton d\'accès' => __DIR__ . '/../storage/cache/orange_token.json',
+        'solde' => __DIR__ . '/../storage/cache/orange_balance.json',
+    ];
+    $details = [];
+    foreach ($files as $label => $path) {
+        if (!is_file($path)) {
+            $details[] = "$label : pas encore mis en cache";
+            continue;
         }
-        return ['OPERATIONAL', 'Cache fonctionnel (aucune requête récente)'];
-    } catch (Throwable $e) {
-        return ['WARNING', 'Cache non configuré ou inaccessible: ' . $e->getMessage()];
+        $ageSeconds = time() - filemtime($path);
+        $details[] = "$label : mis à jour il y a " . $ageSeconds . 's';
     }
+    return ['OPERATIONAL', implode(' | ', $details)];
 }, '💾');
 
-$checks[] = check('Dernière synchronisation', function () {
-    $lastSync = db()->query(
-        "SELECT MAX(date_sync) FROM sync_log WHERE status = 'SUCCESS'"
-    )->fetchColumn();
-    if (!$lastSync) {
-        return ['WARNING', 'Aucune synchronisation réussie trouvée'];
+$checks[] = check('Dernière synchronisation Orange', function () {
+    // Bug réel trouvé le 2026-09-12 : interrogeait une table `sync_log` qui
+    // n'a jamais existé dans ce projet — ce check échouait systématiquement
+    // en ERROR (jamais attrapé par un cas normal, juste par le catch(Throwable)
+    // générique de check()), ce qui faisait passer le statut global de la
+    // page à ERROR en permanence, y compris en JSON (utilisé pour la
+    // supervision externe, §46 — un moniteur externe aurait vu l'application
+    // "down" 24h/24). Le seul indicateur réel d'une synchronisation Orange
+    // réussie est le cache de solde, mis à jour uniquement après un
+    // getBalance() qui a effectivement abouti (voir OrangeSmsService).
+    $path = __DIR__ . '/../storage/cache/orange_balance.json';
+    if (!is_file($path)) {
+        return ['WARNING', 'Aucune synchronisation Orange réussie pour le moment (le cache se remplira au premier appel réel)'];
     }
-    $diff = time() - strtotime($lastSync);
-    if ($diff > 86400 * 7) { // plus de 7 jours
-        return ['WARNING', "Dernière sync: " . date('d/m/Y H:i', strtotime($lastSync)) . " (il y a " . round($diff / 86400) . " jours)"];
+    $diff = time() - filemtime($path);
+    $when = date('d/m/Y H:i', filemtime($path));
+    if ($diff > 86400 * 7) {
+        return ['WARNING', "Dernière sync: $when (il y a " . round($diff / 86400) . " jours)"];
     }
-    return ['OPERATIONAL', "Dernière sync: " . date('d/m/Y H:i', strtotime($lastSync)) . " (il y a " . round($diff / 3600) . "h)"];
+    return ['OPERATIONAL', "Dernière sync: $when (il y a " . round($diff / 3600) . "h)"];
 }, '🔄');
 
 $overall = 'OPERATIONAL';
@@ -215,8 +232,9 @@ $label = ['OPERATIONAL' => 'Opérationnel', 'WARNING' => 'À surveiller', 'ERROR
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Health Check | SMS_ORANGE</title>
+    <link rel="icon" href="../assets/images/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="../assets/css/plugins/bootstrap.min.css" />
-    <link rel="stylesheet" href="../assets/css/plugins/fontawesome.min.css" />
+    <link rel="stylesheet" href="../assets/fonts/fontawesome.css" />
     <style>
         /* ============================================================
            STYLES PERSONNALISÉS

@@ -32,6 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Connexion | SMS_ORANGE</title>
+    <link rel="icon" href="../assets/images/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="../assets/css/plugins/bootstrap.min.css" />
     <style>
         body { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #ff7900 0%, #ff9e40 100%); }
@@ -42,6 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
     <div class="card login-card shadow-lg border-0">
         <div class="card-body p-4">
+            <div class="text-center mb-2"><img src="../assets/images/sms-orange-logo.svg" alt="" width="48" height="48"></div>
             <h4 class="text-center mb-1">SMS_ORANGE</h4>
             <p class="text-center text-muted mb-4">Connexion administrateur</p>
             <?php if ($error): ?>
