@@ -1,13 +1,69 @@
 <?php
+// Analytics avancés (cahier des charges V2.0 §33) : filtre par période
+// (préréglages + personnalisée) et par campagne. Filtre par groupe/segment
+// volontairement absent : messages.destinataire est un numéro, pas un
+// contact_id — le rattacher à un groupe/segment demanderait un
+// rapprochement par numéro de téléphone, ambigu (numéro modifié/retiré du
+// groupe depuis, doublons) et disproportionné pour la valeur ajoutée par
+// rapport au filtre période+campagne déjà couvert ici.
 $orgId = auth()->organizationId();
-$campaigns = getCampaignsReport($orgId);
-$topErrors = getTopErrors($orgId);
-$globalStats = getGlobalSmsStats($orgId);
+
+$datePreset = $_GET['date_range'] ?? '';
+$dateFromInput = $_GET['date_from'] ?? '';
+$dateToInput = $_GET['date_to'] ?? '';
+$campagneFiltre = !empty($_GET['campagne_id']) ? (int) $_GET['campagne_id'] : null;
+
+$range = resolveDateRangePreset($datePreset, $dateFromInput, $dateToInput);
+
+$campaigns = getCampaignsReport($orgId, $range['from'], $range['to'], $campagneFiltre);
+$topErrors = getTopErrors($orgId, 10, $range['from'], $range['to'], $campagneFiltre);
+$globalStats = getGlobalSmsStats($orgId, $range['from'], $range['to'], $campagneFiltre);
+$toutesCampagnes = getCampagne($orgId);
 ?>
 <hr>
+<form method="get" class="row g-2 align-items-end mb-3">
+    <input type="hidden" name="page" value="rapports">
+    <div class="col-auto">
+        <label class="form-label small mb-1" for="filterDateRange">Période</label>
+        <select id="filterDateRange" name="date_range" class="form-select form-select-sm" onchange="this.form.submit()">
+            <option value="" <?= $datePreset === '' ? 'selected' : '' ?>>Tout l'historique</option>
+            <option value="today" <?= $datePreset === 'today' ? 'selected' : '' ?>>Aujourd'hui</option>
+            <option value="7d" <?= $datePreset === '7d' ? 'selected' : '' ?>>7 derniers jours</option>
+            <option value="30d" <?= $datePreset === '30d' ? 'selected' : '' ?>>30 derniers jours</option>
+            <option value="month" <?= $datePreset === 'month' ? 'selected' : '' ?>>Ce mois-ci</option>
+            <option value="custom" <?= $datePreset === 'custom' ? 'selected' : '' ?>>Période personnalisée…</option>
+        </select>
+    </div>
+    <?php if ($datePreset === 'custom'): ?>
+    <div class="col-auto">
+        <label class="form-label small mb-1" for="filterDateFrom">Du</label>
+        <input type="date" id="filterDateFrom" name="date_from" class="form-control form-control-sm" value="<?= htmlspecialchars($dateFromInput) ?>">
+    </div>
+    <div class="col-auto">
+        <label class="form-label small mb-1" for="filterDateTo">Au</label>
+        <input type="date" id="filterDateTo" name="date_to" class="form-control form-control-sm" value="<?= htmlspecialchars($dateToInput) ?>">
+    </div>
+    <?php endif; ?>
+    <div class="col-auto">
+        <label class="form-label small mb-1" for="filterCampagne">Campagne</label>
+        <select id="filterCampagne" name="campagne_id" class="form-select form-select-sm" onchange="this.form.submit()">
+            <option value="">Toutes les campagnes</option>
+            <?php foreach ($toutesCampagnes as $c): ?>
+                <option value="<?= (int) $c['id'] ?>" <?= $campagneFiltre === (int) $c['id'] ? 'selected' : '' ?>><?= htmlspecialchars($c['nom']) ?></option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+    <?php if ($datePreset === 'custom'): ?>
+    <div class="col-auto"><button type="submit" class="btn btn-sm btn-primary">Appliquer</button></div>
+    <?php endif; ?>
+    <?php if ($datePreset !== '' || $campagneFiltre !== null): ?>
+    <div class="col-auto"><a href="?page=rapports" class="btn btn-sm btn-outline-secondary">Réinitialiser</a></div>
+    <?php endif; ?>
+</form>
+
 <div class="row text-center mb-3">
-    <div class="col-md-3 col-sm-6"><h3><?= $globalStats['envoyes'] ?></h3><small class="text-muted">SMS envoyés (total)</small></div>
-    <div class="col-md-3 col-sm-6"><h3 class="text-danger"><?= $globalStats['echecs'] ?></h3><small class="text-muted">Échecs (total)</small></div>
+    <div class="col-md-3 col-sm-6"><h3><?= $globalStats['envoyes'] ?></h3><small class="text-muted">SMS envoyés<?= ($range['from'] || $range['to']) ? ' (période)' : ' (total)' ?></small></div>
+    <div class="col-md-3 col-sm-6"><h3 class="text-danger"><?= $globalStats['echecs'] ?></h3><small class="text-muted">Échecs<?= ($range['from'] || $range['to']) ? ' (période)' : ' (total)' ?></small></div>
     <div class="col-md-3 col-sm-6"><h3><?= $globalStats['en_attente'] ?></h3><small class="text-muted">En attente</small></div>
     <div class="col-md-3 col-sm-6"><h3><?= $globalStats['taux_reussite'] ?>%</h3><small class="text-muted">Taux de réussite</small></div>
 </div>
@@ -36,7 +92,7 @@ $globalStats = getGlobalSmsStats($orgId);
                         </thead>
                         <tbody>
                             <?php if (empty($campaigns)): ?>
-                            <tr><td colspan="8" class="text-center text-muted">Aucune campagne n'a encore été créée.</td></tr>
+                            <tr><td colspan="8" class="text-center text-muted">Aucune campagne pour ces filtres.</td></tr>
                             <?php else: foreach ($campaigns as $c):
                                 $traites = (int) $c['nombre_envoyes'] + (int) $c['nombre_echecs'];
                                 $taux = $traites > 0 ? round(($c['nombre_envoyes'] / $traites) * 100, 1) : 0;

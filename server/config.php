@@ -199,16 +199,61 @@ function redirectBack(string $fallback = '../app/index.php'): void
 // -- Statistiques réelles pour le tableau de bord (remplacent les KPI/graphiques
 // factices de la Phase 1, cf. audit §8) --
 
-function getGlobalSmsStats(int $organizationId)
+/**
+ * Fragment WHERE + paramètres partagés par les fonctions d'analytics (§33) :
+ * période (date_from/date_to, sur $dateColumn) et campagne, tous optionnels.
+ * $dateColumn diffère selon la table interrogée (`messages.date_traitement`
+ * pour les stats/erreurs, `campagne.date_creation` pour la liste de
+ * campagnes elle-même). $paramSuffix évite les collisions de nom de
+ * paramètre PDO quand la même requête appelle cette fonction plusieurs fois
+ * (ex. getGlobalSmsStats : un filtre avec dates pour envoyés/échecs, un
+ * filtre sans dates pour en_attente).
+ *
+ * @return array{0: string, 1: array<string,mixed>}
+ */
+function buildAnalyticsFilter(?string $dateFrom, ?string $dateTo, ?int $campagneId, string $dateColumn, string $paramSuffix = ''): array
 {
+    $sql = '';
+    $params = [];
+
+    if ($dateFrom) {
+        $sql .= " AND $dateColumn >= :date_from$paramSuffix";
+        $params[":date_from$paramSuffix"] = $dateFrom;
+    }
+    if ($dateTo) {
+        $sql .= " AND $dateColumn < (:date_to$paramSuffix)::date + INTERVAL '1 day'";
+        $params[":date_to$paramSuffix"] = $dateTo;
+    }
+    if ($campagneId) {
+        $column = $dateColumn === 'date_creation' ? 'id' : 'campagne_id';
+        $sql .= " AND $column = :campagne_id$paramSuffix";
+        $params[":campagne_id$paramSuffix"] = $campagneId;
+    }
+
+    return [$sql, $params];
+}
+
+function getGlobalSmsStats(int $organizationId, ?string $dateFrom = null, ?string $dateTo = null, ?int $campagneId = null)
+{
+    [$filterSql, $filterParams] = buildAnalyticsFilter($dateFrom, $dateTo, $campagneId, 'date_traitement');
+    // "en_attente" est un état présent, pas un évènement daté (date_traitement
+    // est NULL tant qu'un message n'a pas été traité) : le filtrer par la
+    // période désactiverait complètement le compteur (NULL >= date est
+    // toujours faux en SQL) alors qu'un message en attente l'est "maintenant",
+    // pas "pendant" une période passée — donc jamais filtré par date, mais
+    // toujours filtré par campagne si demandé.
+    [$campaignOnlySql, $campaignOnlyParams] = buildAnalyticsFilter(null, null, $campagneId, 'date_traitement', '_pending');
     $sql = "SELECT
-                COUNT(*) FILTER (WHERE statut = 'envoye') AS envoyes,
-                COUNT(*) FILTER (WHERE statut = 'echec') AS echecs,
-                COUNT(*) FILTER (WHERE statut IN ('en_attente','en_cours')) AS en_attente
+                COUNT(*) FILTER (WHERE statut = 'envoye' $filterSql) AS envoyes,
+                COUNT(*) FILTER (WHERE statut = 'echec' $filterSql) AS echecs,
+                COUNT(*) FILTER (WHERE statut IN ('en_attente','en_cours') $campaignOnlySql) AS en_attente
             FROM messages
             WHERE organization_id = :organization_id";
     $stmt = PDO()->prepare($sql);
     $stmt->bindValue(':organization_id', $organizationId, PDO::PARAM_INT);
+    foreach (array_merge($filterParams, $campaignOnlyParams) as $key => $value) {
+        $stmt->bindValue($key, $value);
+    }
     $stmt->execute();
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     $envoyes = (int) ($row['envoyes'] ?? 0);
@@ -324,28 +369,58 @@ function getCampaignPerformance(int $organizationId, int $limit = 6)
     return array_reverse($stmt->fetchAll(PDO::FETCH_ASSOC));
 }
 
-function getCampaignsReport(int $organizationId)
+/**
+ * Traduit un préréglage de période (§33 : aujourd'hui/7 jours/30 jours/ce
+ * mois/personnalisée) en bornes date_from/date_to (Y-m-d, inclusives) pour
+ * buildAnalyticsFilter(). 'custom' passe $from/$to tels quels (saisie libre) ;
+ * tout préréglage inconnu ou vide ne filtre rien (comportement historique).
+ *
+ * @return array{from: ?string, to: ?string}
+ */
+function resolveDateRangePreset(string $preset, ?string $from, ?string $to): array
 {
+    $today = date('Y-m-d');
+
+    return match ($preset) {
+        'today' => ['from' => $today, 'to' => $today],
+        '7d' => ['from' => date('Y-m-d', strtotime('-6 days')), 'to' => $today],
+        '30d' => ['from' => date('Y-m-d', strtotime('-29 days')), 'to' => $today],
+        'month' => ['from' => date('Y-m-01'), 'to' => $today],
+        'custom' => ['from' => $from ?: null, 'to' => $to ?: null],
+        default => ['from' => null, 'to' => null],
+    };
+}
+
+function getCampaignsReport(int $organizationId, ?string $dateFrom = null, ?string $dateTo = null, ?int $campagneId = null)
+{
+    [$filterSql, $filterParams] = buildAnalyticsFilter($dateFrom, $dateTo, $campagneId, 'date_creation');
     $sql = "SELECT id, nom, type, statut, total_destinataires, nombre_envoyes, nombre_echecs, date_creation, date_completion
             FROM campagne
-            WHERE organization_id = :organization_id
+            WHERE organization_id = :organization_id $filterSql
             ORDER BY date_creation DESC";
     $stmt = PDO()->prepare($sql);
     $stmt->bindValue(':organization_id', $organizationId, PDO::PARAM_INT);
+    foreach ($filterParams as $key => $value) {
+        $stmt->bindValue($key, $value);
+    }
     $stmt->execute();
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-function getTopErrors(int $organizationId, int $limit = 10)
+function getTopErrors(int $organizationId, int $limit = 10, ?string $dateFrom = null, ?string $dateTo = null, ?int $campagneId = null)
 {
+    [$filterSql, $filterParams] = buildAnalyticsFilter($dateFrom, $dateTo, $campagneId, 'date_traitement');
     $sql = "SELECT error_code, COUNT(*) AS total
             FROM messages
-            WHERE organization_id = :organization_id AND statut = 'echec' AND error_code IS NOT NULL
+            WHERE organization_id = :organization_id AND statut = 'echec' AND error_code IS NOT NULL $filterSql
             GROUP BY error_code
             ORDER BY total DESC
             LIMIT :limit";
     $stmt = PDO()->prepare($sql);
     $stmt->bindValue(':organization_id', $organizationId, PDO::PARAM_INT);
+    foreach ($filterParams as $key => $value) {
+        $stmt->bindValue($key, $value);
+    }
     $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
     $stmt->execute();
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
