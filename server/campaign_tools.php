@@ -21,12 +21,15 @@ if (!auth()->check()) {
 $message = (string) ($_GET['message'] ?? $_POST['message'] ?? '');
 $groupeIdRaw = $_GET['groupe_id'] ?? $_POST['groupe_id'] ?? '';
 $groupeId = $groupeIdRaw !== '' ? (int) $groupeIdRaw : null;
+$segmentIdRaw = $_GET['segment_id'] ?? $_POST['segment_id'] ?? '';
+$segmentId = $segmentIdRaw !== '' ? (int) $segmentIdRaw : null;
 
 $analysis = \App\Services\SmsCounterService::analyze($message);
 
 // sampleContact() est déjà scopé à l'organisation courante et ne renvoie
-// jamais le contact d'une autre organisation, même si groupe_id est forgé.
-$contact = contacts()->sampleContact($groupeId);
+// jamais le contact d'une autre organisation, même si groupe_id/segment_id
+// est forgé.
+$contact = $segmentId !== null ? segments()->sampleContact($segmentId) : contacts()->sampleContact($groupeId);
 $preview = null;
 $missing = [];
 

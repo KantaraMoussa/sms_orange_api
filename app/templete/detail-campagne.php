@@ -43,6 +43,7 @@ if ($isDraft && !$hasRecipients) {
     $groupesDisponibles = contacts()->allGroups();
     $templatesDisponibles = smsTemplates()->all();
     $totalContactsOrg = contacts()->countContacts();
+    $segmentsDisponibles = segments()->all();
 }
 
 $orgFuseauHoraire = 'Africa/Conakry';
@@ -133,6 +134,11 @@ if ($isDraft && $hasRecipients) {
                     <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#composeModal<?= $campagne['id'] ?>" onclick="document.getElementById('audience_group_<?= $campagne['id'] ?>').checked = true; toggleGroupeSelect<?= $campagne['id'] ?>();">
                         <i class="ph ph-users-three"></i>&nbsp; Un groupe
                     </button>
+                    <?php if (!empty($segmentsDisponibles)): ?>
+                    <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#composeModal<?= $campagne['id'] ?>" onclick="document.getElementById('audience_segment_<?= $campagne['id'] ?>').checked = true; toggleGroupeSelect<?= $campagne['id'] ?>();">
+                        <i class="ph ph-funnel"></i>&nbsp; Un segment
+                    </button>
+                    <?php endif; ?>
                     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#importExcelModal<?= $campagne['id'] ?>">
                         <span class="fa fa-file-excel-o"></span>&nbsp; Importer un fichier Excel
                     </button>
@@ -274,12 +280,26 @@ if ($isDraft && $hasRecipients) {
                             <input class="form-check-input" type="radio" name="audience_type" id="audience_group_<?= $campagne['id'] ?>" value="group" onchange="toggleGroupeSelect<?= $campagne['id'] ?>()">
                             <label class="form-check-label" for="audience_group_<?= $campagne['id'] ?>">Un groupe</label>
                         </div>
+                        <?php if (!empty($segmentsDisponibles)): ?>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="audience_type" id="audience_segment_<?= $campagne['id'] ?>" value="segment" onchange="toggleGroupeSelect<?= $campagne['id'] ?>()">
+                            <label class="form-check-label" for="audience_segment_<?= $campagne['id'] ?>">Un segment</label>
+                        </div>
+                        <?php endif; ?>
                         <select name="groupe_id" id="groupeSelect<?= $campagne['id'] ?>" class="form-select mt-2" disabled onchange="updateCounterAndPreview<?= $campagne['id'] ?>()">
                             <option value="">— Choisir un groupe —</option>
                             <?php foreach ($groupesDisponibles as $g): ?>
                                 <option value="<?= (int) $g['id'] ?>"><?= htmlspecialchars($g['nom']) ?> (<?= (int) $g['nombre_contacts'] ?>)</option>
                             <?php endforeach; ?>
                         </select>
+                        <?php if (!empty($segmentsDisponibles)): ?>
+                        <select name="segment_id" id="segmentSelect<?= $campagne['id'] ?>" class="form-select mt-2" disabled onchange="updateCounterAndPreview<?= $campagne['id'] ?>()">
+                            <option value="">— Choisir un segment —</option>
+                            <?php foreach ($segmentsDisponibles as $s): ?>
+                                <option value="<?= (int) $s['id'] ?>"><?= htmlspecialchars($s['nom']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <?php endif; ?>
                     </div>
                     <?php if (!empty($templatesDisponibles)): ?>
                     <div class="mb-3">
@@ -312,8 +332,11 @@ if ($isDraft && $hasRecipients) {
 <script>
 function toggleGroupeSelect<?= $campagne['id'] ?>() {
     const isGroup = document.getElementById('audience_group_<?= $campagne['id'] ?>').checked;
-    const select = document.getElementById('groupeSelect<?= $campagne['id'] ?>');
-    select.disabled = !isGroup;
+    const segmentRadio = document.getElementById('audience_segment_<?= $campagne['id'] ?>');
+    const isSegment = segmentRadio ? segmentRadio.checked : false;
+    document.getElementById('groupeSelect<?= $campagne['id'] ?>').disabled = !isGroup;
+    const segmentSelect = document.getElementById('segmentSelect<?= $campagne['id'] ?>');
+    if (segmentSelect) segmentSelect.disabled = !isSegment;
     updateCounterAndPreview<?= $campagne['id'] ?>();
 }
 
@@ -323,8 +346,11 @@ function updateCounterAndPreview<?= $campagne['id'] ?>() {
     debounceTimer<?= $campagne['id'] ?> = setTimeout(function () {
         const message = document.getElementById('campaignMessage<?= $campagne['id'] ?>').value;
         const isGroup = document.getElementById('audience_group_<?= $campagne['id'] ?>').checked;
+        const segmentRadio = document.getElementById('audience_segment_<?= $campagne['id'] ?>');
+        const isSegment = segmentRadio ? segmentRadio.checked : false;
         const groupeId = isGroup ? document.getElementById('groupeSelect<?= $campagne['id'] ?>').value : '';
-        const params = new URLSearchParams({ message: message, groupe_id: groupeId });
+        const segmentId = isSegment ? document.getElementById('segmentSelect<?= $campagne['id'] ?>').value : '';
+        const params = new URLSearchParams({ message: message, groupe_id: groupeId, segment_id: segmentId });
 
         fetch('../server/campaign_tools.php?' + params.toString())
             .then(r => r.json())

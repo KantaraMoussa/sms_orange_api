@@ -11,6 +11,7 @@ use App\Services\SmsTemplateService;
 use App\Services\ContactService;
 use App\Services\NotificationService;
 use App\Services\OrganizationService;
+use App\Services\SegmentService;
 
 function campaignQueue(): CampaignQueueService
 {
@@ -79,6 +80,17 @@ function notifications(): NotificationService
 
     if ($service === null) {
         $service = new NotificationService(db(), auth()->organizationId());
+    }
+
+    return $service;
+}
+
+function segments(): SegmentService
+{
+    static $service = null;
+
+    if ($service === null) {
+        $service = new SegmentService(db(), auth()->organizationId());
     }
 
     return $service;

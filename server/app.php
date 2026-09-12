@@ -159,6 +159,7 @@ if (isset($_POST['create_campaign_recipients'])) {
 
     $audienceType = $_POST['audience_type'] ?? 'all';
     $groupeId = ($audienceType === 'group' && !empty($_POST['groupe_id'])) ? (int) $_POST['groupe_id'] : null;
+    $segmentId = ($audienceType === 'segment' && !empty($_POST['segment_id'])) ? (int) $_POST['segment_id'] : null;
     $message = trim($_POST['campaign_message'] ?? '');
 
     if ($message === '') {
@@ -168,7 +169,9 @@ if (isset($_POST['create_campaign_recipients'])) {
         exit;
     }
 
-    $audience = contacts()->allContacts($groupeId);
+    // §13 : un segment est un critère recalculé à l'usage, jamais une copie
+    // de contacts — resolveContacts() interroge contacts_v2 à cet instant.
+    $audience = $segmentId !== null ? segments()->resolveContacts($segmentId) : contacts()->allContacts($groupeId);
     if (empty($audience)) {
         $_SESSION['class'] = "alert alert-warning";
         $_SESSION['message'] = "Aucun contact dans cette audience.";
@@ -192,8 +195,9 @@ if (isset($_POST['create_campaign_recipients'])) {
         ];
     }
 
+    $audienceLabel = $segmentId !== null ? "segment #$segmentId" : ($groupeId !== null ? "groupe #$groupeId" : 'tous les contacts');
     $result = campaignQueue()->addRecipients($campagneId, $rows);
-    activityLog()->log('ajout_destinataires_campagne', $campagneId, $actor, "{$result['added']} ajouté(s) depuis " . ($groupeId !== null ? "groupe #$groupeId" : 'tous les contacts'));
+    activityLog()->log('ajout_destinataires_campagne', $campagneId, $actor, "{$result['added']} ajouté(s) depuis $audienceLabel");
 
     $_SESSION['class'] = "alert alert-success";
     $_SESSION['message'] = "✅ {$result['added']} destinataire(s) ajouté(s), {$result['duplicates']} doublon(s) ignoré(s).";
@@ -633,6 +637,45 @@ if (isset($_POST['import_contacts']) && isset($_FILES['contactsFile'])) {
     } else {
         header("Location: ../app/index.php?page=contacts");
     }
+    exit;
+}
+
+// ------------------------------------------------------------------
+// Segments dynamiques (cahier des charges V2.0 §13) : le critère est stocké
+// tel quel, jamais une copie de contacts (voir SegmentService).
+// ------------------------------------------------------------------
+
+if (isset($_POST['create_segment'])) {
+    $nom = trim($_POST['segment_nom'] ?? '');
+    if ($nom === '') {
+        $_SESSION['class'] = "alert alert-warning";
+        $_SESSION['message'] = "Le nom du segment est obligatoire.";
+        redirectBack();
+        exit;
+    }
+
+    $criteria = [
+        'search' => trim($_POST['criteria_search'] ?? ''),
+        'statut' => trim($_POST['criteria_statut'] ?? ''),
+        'groupe_id' => $_POST['criteria_groupe_id'] ?? null,
+        'created_after' => trim($_POST['criteria_created_after'] ?? ''),
+        'created_before' => trim($_POST['criteria_created_before'] ?? ''),
+    ];
+    $id = segments()->create($nom, $criteria, $actor);
+    activityLog()->log('creation_segment', null, $actor, $nom);
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "✅ Segment « $nom » créé (" . segments()->countContacts($id) . " contact(s) actuellement).";
+    header("Location: ../app/index.php?page=segments");
+    exit;
+}
+
+if (isset($_POST['delete_segment'])) {
+    $id = (int) ($_POST['segment_id'] ?? 0);
+    segments()->delete($id);
+    activityLog()->log('suppression_segment', null, $actor, "segment #$id");
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "✅ Segment supprimé.";
+    header("Location: ../app/index.php?page=segments");
     exit;
 }
 

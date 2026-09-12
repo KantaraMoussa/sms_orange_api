@@ -85,6 +85,11 @@ require_once('../server/infosAPI.php');
                                 <i class="ph ph-users-three"></i>
                             </span>
                             <span class="pc-mtext">Groupes</span></a></li>
+                    <li class="pc-item"><a href="?page=segments" class="pc-link">
+                            <span class="pc-micon">
+                                <i class="ph ph-funnel"></i>
+                            </span>
+                            <span class="pc-mtext">Segments</span></a></li>
 
                     <li class="pc-item pc-caption">
                         <label>Gestion des Messages</label>
@@ -326,6 +331,8 @@ require_once('../server/infosAPI.php');
                     require_once('./templete/groupe.php');
                 } else   if ($_GET['page'] == "detail-groupe") {
                     require_once('./templete/detail-groupe.php');
+                } else   if ($_GET['page'] == "segments") {
+                    require_once('./templete/segments.php');
                 } else   if ($_GET['page'] == "campgagne") {
                      if (isset($_GET['details'])) {
                         require_once('./templete/detail-campagne.php');
