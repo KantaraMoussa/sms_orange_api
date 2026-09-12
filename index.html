@@ -70,6 +70,176 @@
       max-height: 100vh !important;
       overflow: hidden;
     }
+
+    /* ===== Section Fonctionnalités / Carrousel 3D ===== */
+    .features-section {
+      background: #f6f7fb;
+      padding: 90px 0 70px;
+      overflow: hidden;
+    }
+    .section-eyebrow {
+      display: inline-block;
+      background: rgba(64, 153, 255, 0.12);
+      color: #4099ff;
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 6px 16px;
+      border-radius: 999px;
+      margin-bottom: 14px;
+    }
+    .features-section h2, .points-forts-section h2 {
+      font-weight: 700;
+      font-size: 34px;
+    }
+    .features-section .lead-sub {
+      color: #6b7280;
+      max-width: 620px;
+      margin: 10px auto 0;
+    }
+
+    /* Scène 3D */
+    .carousel-3d-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      margin-top: 55px;
+    }
+    .carousel-3d-stage {
+      position: relative;
+      width: 100%;
+      max-width: 720px;
+      height: 340px;
+      perspective: 1400px;
+    }
+    .carousel-3d-item {
+      position: absolute;
+      width: 280px;
+      height: 300px;
+      top: 50%;
+      left: 50%;
+      transform-style: preserve-3d;
+      transition: transform 0.7s cubic-bezier(.25,.8,.25,1), opacity 0.7s ease;
+      will-change: transform, opacity;
+    }
+    .carousel-3d-card {
+      width: 100%;
+      height: 100%;
+      background: #fff;
+      border-radius: 20px;
+      box-shadow: 0 20px 45px rgba(27, 46, 94, 0.16);
+      padding: 34px 26px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      border: 1px solid rgba(0,0,0,0.04);
+    }
+    .carousel-3d-item.is-active .carousel-3d-card {
+      box-shadow: 0 30px 60px rgba(27, 46, 94, 0.28);
+    }
+    .carousel-3d-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #4099ff, #73b4ff);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 30px;
+      margin-bottom: 18px;
+      box-shadow: 0 10px 20px rgba(64,153,255,0.35);
+    }
+    .carousel-3d-card h4 { font-weight: 700; font-size: 19px; margin-bottom: 10px; }
+    .carousel-3d-card p { color: #6b7280; font-size: 14.5px; line-height: 1.55; margin-bottom: 12px; }
+    .carousel-3d-tag {
+      margin-top: auto;
+      background: #f0f6ff;
+      color: #4099ff;
+      font-size: 12.5px;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 999px;
+    }
+    .carousel-3d-arrow {
+      flex: 0 0 auto;
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      border: 1px solid rgba(64,153,255,0.3);
+      background: #fff;
+      color: #4099ff;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all .2s ease;
+      z-index: 10;
+    }
+    .carousel-3d-arrow:hover { background: #4099ff; color: #fff; transform: scale(1.08); }
+    .carousel-3d-dots {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 30px;
+    }
+    .carousel-3d-dots span {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #d7dee8;
+      cursor: pointer;
+      transition: all .25s ease;
+    }
+    .carousel-3d-dots span.active {
+      background: #4099ff;
+      width: 26px;
+      border-radius: 6px;
+    }
+
+    /* ===== Points forts ===== */
+    .points-forts-section { padding: 70px 0; background: #fff; }
+    .point-fort-card {
+      background: #f6f7fb;
+      border-radius: 16px;
+      padding: 28px 20px;
+      height: 100%;
+      transition: transform .25s ease, box-shadow .25s ease;
+    }
+    .point-fort-card:hover {
+      transform: translateY(-6px);
+      box-shadow: 0 16px 30px rgba(27,46,94,0.12);
+      background: #fff;
+    }
+    .point-fort-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      background: rgba(64,153,255,0.12);
+      color: #4099ff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin: 0 auto 16px;
+    }
+    .point-fort-card h5 { font-weight: 700; font-size: 15.5px; margin-bottom: 6px; }
+    .point-fort-card p { color: #6b7280; font-size: 13.5px; margin: 0; }
+
+    @media (max-width: 767px) {
+      .carousel-3d-stage { height: 380px; }
+      .carousel-3d-item { width: 240px; height: 360px; }
+      .carousel-3d-card { padding: 26px 18px; }
+      .carousel-3d-icon { width: 52px; height: 52px; font-size: 24px; margin-bottom: 12px; }
+      .carousel-3d-card h4 { font-size: 16.5px; margin-bottom: 8px; }
+      .carousel-3d-card p { font-size: 13px; line-height: 1.45; margin-bottom: 8px; }
+      .carousel-3d-arrow { display: none; }
+    }
   </style>
 </head>
 
@@ -125,6 +295,142 @@
     </div>
 
   </header>
+
+  <!-- [ Fonctionnalités — carrousel 3D ] start -->
+  <section class="features-section" id="fonctionnalites">
+    <div class="container text-center">
+      <span class="section-eyebrow">Fonctionnalités</span>
+      <h2>Tout ce qu'il faut pour vos campagnes SMS</h2>
+      <p class="lead-sub">Du premier contact importé jusqu'au rapport final, chaque étape est pensée pour aller vite et rester fiable, même sur des campagnes de plus de 10 000 destinataires.</p>
+
+      <div class="carousel-3d-wrapper">
+        <button class="carousel-3d-arrow" id="c3dPrev" aria-label="Fonctionnalité précédente"><i class="ph ph-caret-left"></i></button>
+        <div class="carousel-3d-stage" id="c3dStage">
+          <div class="carousel-3d-item" data-index="0">
+            <div class="carousel-3d-card">
+              <div class="carousel-3d-icon"><i class="ph ph-upload-simple"></i></div>
+              <h4>Import Excel / CSV</h4>
+              <p>Importez vos contacts en masse, avec détection automatique des colonnes et rapport détaillé des lignes valides, invalides ou en doublon.</p>
+              <span class="carousel-3d-tag">10 000+ contacts</span>
+            </div>
+          </div>
+          <div class="carousel-3d-item" data-index="1">
+            <div class="carousel-3d-card">
+              <div class="carousel-3d-icon"><i class="ph ph-users-three"></i></div>
+              <h4>Groupes & segments</h4>
+              <p>Organisez vos contacts en groupes (clients, étudiants, VIP…) et ciblez précisément votre audience pour chaque campagne.</p>
+              <span class="carousel-3d-tag">Ciblage précis</span>
+            </div>
+          </div>
+          <div class="carousel-3d-item" data-index="2">
+            <div class="carousel-3d-card">
+              <div class="carousel-3d-icon"><i class="ph ph-paper-plane-tilt"></i></div>
+              <h4>Campagnes en masse</h4>
+              <p>Créez une campagne en quelques minutes : message personnalisé, prévisualisation réelle, SMS de test avant l'envoi.</p>
+              <span class="carousel-3d-tag">Envoi asynchrone</span>
+            </div>
+          </div>
+          <div class="carousel-3d-item" data-index="3">
+            <div class="carousel-3d-card">
+              <div class="carousel-3d-icon"><i class="ph ph-note-pencil"></i></div>
+              <h4>Modèles SMS</h4>
+              <p>Créez des modèles réutilisables avec variables dynamiques ({{prenom}}, {{montant}}…) pour gagner du temps à chaque campagne.</p>
+              <span class="carousel-3d-tag">Variables intelligentes</span>
+            </div>
+          </div>
+          <div class="carousel-3d-item" data-index="4">
+            <div class="carousel-3d-card">
+              <div class="carousel-3d-icon"><i class="ph ph-chart-line-up"></i></div>
+              <h4>Suivi & rapports</h4>
+              <p>Progression en temps réel, taux de réussite, échecs détaillés et export des rapports pour chaque campagne.</p>
+              <span class="carousel-3d-tag">Temps réel</span>
+            </div>
+          </div>
+          <div class="carousel-3d-item" data-index="5">
+            <div class="carousel-3d-card">
+              <div class="carousel-3d-icon"><i class="ph ph-clock-counter-clockwise"></i></div>
+              <h4>Historique Orange</h4>
+              <p>Consultez l'historique complet des envois directement depuis l'API Orange, avec statuts et journaux détaillés.</p>
+              <span class="carousel-3d-tag">Traçabilité totale</span>
+            </div>
+          </div>
+          <div class="carousel-3d-item" data-index="6">
+            <div class="carousel-3d-card">
+              <div class="carousel-3d-icon"><i class="ph ph-bell-ringing"></i></div>
+              <h4>Notifications & alertes</h4>
+              <p>Soyez averti en cas de solde faible, de fin de campagne ou d'import terminé, directement dans la plateforme.</p>
+              <span class="carousel-3d-tag">Toujours informé</span>
+            </div>
+          </div>
+          <div class="carousel-3d-item" data-index="7">
+            <div class="carousel-3d-card">
+              <div class="carousel-3d-icon"><i class="ph ph-shield-check"></i></div>
+              <h4>Sécurité & rôles</h4>
+              <p>Comptes utilisateurs, rôles et permissions, protection CSRF et sessions sécurisées pour protéger vos données.</p>
+              <span class="carousel-3d-tag">Multi-utilisateurs</span>
+            </div>
+          </div>
+        </div>
+        <button class="carousel-3d-arrow" id="c3dNext" aria-label="Fonctionnalité suivante"><i class="ph ph-caret-right"></i></button>
+      </div>
+      <div class="carousel-3d-dots" id="c3dDots"></div>
+    </div>
+  </section>
+  <!-- [ Fonctionnalités — carrousel 3D ] end -->
+
+  <!-- [ Points forts ] start -->
+  <section class="points-forts-section" id="points-forts">
+    <div class="container text-center">
+      <span class="section-eyebrow">Points forts</span>
+      <h2>Pourquoi choisir SMS_ORANGE</h2>
+      <div class="row g-4 mt-2">
+        <div class="col-6 col-md-4 col-lg-2">
+          <div class="point-fort-card">
+            <div class="point-fort-icon"><i class="ph ph-lightning"></i></div>
+            <h5>Rapide</h5>
+            <p>Campagne créée en quelques minutes</p>
+          </div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+          <div class="point-fort-card">
+            <div class="point-fort-icon"><i class="ph ph-shield-check"></i></div>
+            <h5>Fiable</h5>
+            <p>File d'attente avec reprise automatique</p>
+          </div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+          <div class="point-fort-card">
+            <div class="point-fort-icon"><i class="ph ph-users-three"></i></div>
+            <h5>10 000+</h5>
+            <p>Destinataires par campagne</p>
+          </div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+          <div class="point-fort-card">
+            <div class="point-fort-icon"><i class="ph ph-plug"></i></div>
+            <h5>Officiel</h5>
+            <p>Intégration directe API Orange</p>
+          </div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+          <div class="point-fort-card">
+            <div class="point-fort-icon"><i class="ph ph-lock-key"></i></div>
+            <h5>Sécurisé</h5>
+            <p>Rôles, permissions et CSRF</p>
+          </div>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+          <div class="point-fort-card">
+            <div class="point-fort-icon"><i class="ph ph-gauge"></i></div>
+            <h5>Suivi live</h5>
+            <p>Progression et statistiques en direct</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- [ Points forts ] end -->
+
   <footer class="footer">
     © 2025 UGLCS SMS. Tous droits réservés | +224 623 90 25 28 | moussaizaziszamalkantara@gmail.com
   </footer>
@@ -138,6 +444,81 @@
   <script src="assets/js/script.js"></script>
   <script src="assets/js/theme.js"></script>
   <script src="assets/js/plugins/feather.min.js"></script>
+
+  <!-- Carrousel 3D des fonctionnalités -->
+  <script>
+    (function () {
+      var items = Array.prototype.slice.call(document.querySelectorAll('#c3dStage .carousel-3d-item'));
+      var dotsWrap = document.getElementById('c3dDots');
+      var total = items.length;
+      if (!total) return;
+
+      var radius = 360; // profondeur du cercle 3D
+      var angleStep = 360 / total;
+      var current = 0;
+      var autoplayId = null;
+
+      items.forEach(function (item, i) {
+        var dot = document.createElement('span');
+        dot.setAttribute('data-index', i);
+        dot.addEventListener('click', function () { goTo(i); resetAutoplay(); });
+        dotsWrap.appendChild(dot);
+      });
+      var dots = Array.prototype.slice.call(dotsWrap.children);
+
+      function render() {
+        items.forEach(function (item, i) {
+          var diff = i - current;
+          if (diff > total / 2) diff -= total;
+          if (diff < -total / 2) diff += total;
+          var angle = diff * angleStep;
+          item.style.transform = 'translate(-50%,-50%) rotateY(' + angle + 'deg) translateZ(' + radius + 'px)';
+          var absDiff = Math.abs(diff);
+          item.classList.toggle('is-active', absDiff === 0);
+          if (absDiff === 0) {
+            item.style.opacity = 1;
+            item.style.zIndex = 100;
+            item.style.pointerEvents = 'auto';
+          } else if (absDiff === 1) {
+            item.style.opacity = 0.45;
+            item.style.zIndex = 90;
+            item.style.pointerEvents = 'none';
+          } else {
+            item.style.opacity = 0;
+            item.style.zIndex = 1;
+            item.style.pointerEvents = 'none';
+          }
+        });
+        dots.forEach(function (d, i) { d.classList.toggle('active', i === current); });
+      }
+
+      function goTo(index) {
+        current = ((index % total) + total) % total;
+        render();
+      }
+
+      function next() { goTo(current + 1); }
+      function prev() { goTo(current - 1); }
+
+      function startAutoplay() {
+        autoplayId = setInterval(next, 4200);
+      }
+      function stopAutoplay() {
+        if (autoplayId) { clearInterval(autoplayId); autoplayId = null; }
+      }
+      function resetAutoplay() { stopAutoplay(); startAutoplay(); }
+
+      document.getElementById('c3dNext').addEventListener('click', function () { next(); resetAutoplay(); });
+      document.getElementById('c3dPrev').addEventListener('click', function () { prev(); resetAutoplay(); });
+
+      var stage = document.getElementById('c3dStage');
+      stage.addEventListener('mouseenter', stopAutoplay);
+      stage.addEventListener('mouseleave', startAutoplay);
+
+      render();
+      startAutoplay();
+    })();
+  </script>
 
 </body>
 
