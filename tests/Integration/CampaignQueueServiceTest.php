@@ -298,6 +298,95 @@ class CampaignQueueServiceTest extends TestCase
         $this->assertSame('SCHEDULED', getSingleCampagne($notYetDue)['statut'], 'a campaign scheduled in the future must not be promoted yet');
     }
 
+    public function testConfigureRecurrenceRejectsInvalidFrequency(): void
+    {
+        $id = $this->makeCampaign('PHPUnit recurrence invalid freq');
+
+        $this->expectException(\Exception::class);
+        $this->queue->configureRecurrence($id, 'hourly', 'Bonjour', 'all', null, null);
+    }
+
+    public function testConfigureRecurrenceSetsFieldsAndNextOccurrence(): void
+    {
+        $id = $this->makeCampaign('PHPUnit recurrence config');
+
+        $this->queue->configureRecurrence($id, 'weekly', 'Bonjour {{prenom}}', 'all', null, null);
+
+        $row = getSingleCampagne($id);
+        $this->assertSame('weekly', $row['recurrence']);
+        $this->assertSame('all', $row['recurrence_audience_type']);
+        $this->assertSame('Bonjour {{prenom}}', $row['message_template']);
+        $this->assertNotNull($row['next_occurrence_at']);
+        // +7 jours, à la minute près (marge pour le temps d'exécution du test).
+        $expected = new \DateTime('+7 days', new \DateTimeZone('UTC'));
+        $actual = new \DateTime($row['next_occurrence_at'], new \DateTimeZone('UTC'));
+        $this->assertLessThan(60, abs($expected->getTimestamp() - $actual->getTimestamp()));
+    }
+
+    public function testStopRecurrenceClearsFields(): void
+    {
+        $id = $this->makeCampaign('PHPUnit recurrence stop');
+        $this->queue->configureRecurrence($id, 'daily', 'Bonjour', 'all', null, null);
+
+        $this->queue->stopRecurrence($id);
+
+        $row = getSingleCampagne($id);
+        $this->assertNull($row['recurrence']);
+        $this->assertNull($row['next_occurrence_at']);
+    }
+
+    public function testProcessRecurringCampaignsSpawnsOccurrenceForAllContacts(): void
+    {
+        $contacts = new \App\Services\ContactService($this->pdo, 1);
+        $contactId = $contacts->createContact('PHPUNITRECUR-All', 'Test', '622997001');
+
+        $id = $this->makeCampaign('PHPUnit recurrence spawn all');
+        $this->queue->configureRecurrence($id, 'daily', 'Bonjour {{prenom}} !', 'all', null, null);
+        // Force l'échéance dans le passé pour simuler qu'elle est due.
+        $this->pdo->exec("UPDATE campagne SET next_occurrence_at = NOW() - INTERVAL '1 minute' WHERE id = $id");
+
+        $spawned = $this->queue->processRecurringCampaigns();
+
+        $this->assertNotEmpty($spawned);
+        $newId = end($spawned);
+        $this->createdCampaignIds[] = $newId;
+        $messages = getMessageCampagne($newId);
+        $this->assertNotEmpty($messages);
+        $this->assertContains('Bonjour Test !', array_column($messages, 'contenu'));
+
+        // L'échéance du parent doit avoir avancé, pas rester dans le passé.
+        $parent = getSingleCampagne($id);
+        $this->assertGreaterThan(new \DateTime('now', new \DateTimeZone('UTC')), new \DateTime($parent['next_occurrence_at'], new \DateTimeZone('UTC')));
+
+        $this->pdo->exec("DELETE FROM contacts_v2 WHERE id = $contactId");
+    }
+
+    public function testProcessRecurringCampaignsSkipsButAdvancesWhenAudienceEmpty(): void
+    {
+        $id = $this->makeCampaign('PHPUnit recurrence empty audience');
+        // Groupe inexistant : audience toujours vide.
+        $this->queue->configureRecurrence($id, 'daily', 'Bonjour', 'group', 999999999, null);
+        $this->pdo->exec("UPDATE campagne SET next_occurrence_at = NOW() - INTERVAL '1 minute' WHERE id = $id");
+        $before = getSingleCampagne($id)['next_occurrence_at'];
+
+        $spawned = $this->queue->processRecurringCampaigns();
+
+        $after = getSingleCampagne($id)['next_occurrence_at'];
+        $this->assertNotEquals($before, $after, 'next_occurrence_at must advance even when no campaign was spawned, to avoid looping forever');
+    }
+
+    public function testProcessRecurringCampaignsIgnoresNotYetDueCampaigns(): void
+    {
+        $id = $this->makeCampaign('PHPUnit recurrence not due');
+        $this->queue->configureRecurrence($id, 'monthly', 'Bonjour', 'all', null, null);
+        // configureRecurrence() place déjà next_occurrence_at dans le futur (+1 mois).
+
+        $spawnedBefore = $this->queue->processRecurringCampaigns();
+
+        $this->assertNotContains($id, $spawnedBefore);
+        $this->assertSame('monthly', getSingleCampagne($id)['recurrence'], 'a not-yet-due campaign must be left untouched');
+    }
+
     public function testGetActiveCampaignsCountIncludesQueuedRunningAndPausedOnly(): void
     {
         $draft = $this->makeCampaign('PHPUnit active-count draft');

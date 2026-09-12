@@ -18,6 +18,9 @@ $badgeClass = [
     'FAILED' => 'bg-danger', 'CANCELLED' => 'bg-dark',
 ][$campagne['statut']] ?? 'bg-secondary';
 
+$isRecurring = !empty($campagne['recurrence']);
+$recurrenceLabels = ['daily' => 'tous les jours', 'weekly' => 'toutes les semaines', 'monthly' => 'tous les mois'];
+
 $hasRecipients = (int) $campagne['total_destinataires'] > 0;
 
 // §15 étape 5 / §20 / §30 : résumé avant lancement (immédiat ou planifié) —
@@ -184,6 +187,18 @@ if ($isDraft && $hasRecipients) {
                     </div>
                 </div>
                 <?php endif; ?>
+
+                <?php if ($isRecurring): ?>
+                <hr>
+                <div class="alert alert-info d-flex justify-content-between align-items-center mb-0">
+                    <span>🔁 Renouvellement automatique <strong><?= htmlspecialchars($recurrenceLabels[$campagne['recurrence']] ?? $campagne['recurrence']) ?></strong> — prochain envoi le <strong><?= formatOrgDateTime($campagne['next_occurrence_at']) ?></strong>.</span>
+                    <form method="post" action="../server/app.php" class="m-0" onsubmit="return confirm('Arrêter le renouvellement automatique de cette campagne ?');">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="campagne_id" value="<?= $campagne['id'] ?>">
+                        <button type="submit" name="stop_recurrence" class="btn btn-sm btn-outline-secondary">Arrêter</button>
+                    </form>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -319,7 +334,18 @@ if ($isDraft && $hasRecipients) {
                     </div>
                     <div class="mb-3 small" id="counterInfo<?= $campagne['id'] ?>">0 caractère · 0 SMS</div>
                     <div class="mb-1"><strong>Aperçu réel (contact de l'audience)</strong></div>
-                    <div class="border rounded p-2 bg-light" id="messagePreview<?= $campagne['id'] ?>" style="min-height: 2.5em;">—</div>
+                    <div class="border rounded p-2 bg-light mb-3" id="messagePreview<?= $campagne['id'] ?>" style="min-height: 2.5em;">—</div>
+
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="recurrence_enabled" id="recurrenceEnabled<?= $campagne['id'] ?>" value="1" onchange="document.getElementById('recurrenceFrequency<?= $campagne['id'] ?>').disabled = !this.checked;">
+                        <label class="form-check-label" for="recurrenceEnabled<?= $campagne['id'] ?>">🔁 Renouveler automatiquement cette campagne</label>
+                    </div>
+                    <select name="recurrence" id="recurrenceFrequency<?= $campagne['id'] ?>" class="form-select form-select-sm mt-2" style="max-width: 260px;" disabled>
+                        <option value="daily">Tous les jours</option>
+                        <option value="weekly" selected>Toutes les semaines</option>
+                        <option value="monthly">Tous les mois</option>
+                    </select>
+                    <small class="text-muted d-block mt-1">L'audience choisie ci-dessus sera réévaluée à chaque envoi automatique — les nouveaux contacts correspondants seront inclus.</small>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Annuler</button>

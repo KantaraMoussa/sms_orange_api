@@ -79,6 +79,14 @@ if ($arg === '--daemon') {
             echo "$promoted campagne(s) planifiée(s) promue(s) en QUEUED.\n";
         }
 
+        // Automatisations : génère et lance la prochaine occurrence de
+        // chaque campagne récurrente due (même démon, même raison que
+        // ci-dessus — ne doit dépendre de personne ayant l'app ouverte).
+        $spawned = campaignQueue()->processRecurringCampaigns();
+        if (!empty($spawned)) {
+            echo count($spawned) . " occurrence(s) automatique(s) générée(s) : " . implode(', ', $spawned) . "\n";
+        }
+
         $stmt = $pdo->query("SELECT id FROM campagne WHERE statut IN ('QUEUED','RUNNING') ORDER BY id");
         $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
 

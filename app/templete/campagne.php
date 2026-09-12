@@ -24,7 +24,7 @@
                              <?php if (!empty($campagnes)): ?>
                                  <?php foreach ($campagnes as $campagne): ?>
                                      <tr>
-                                         <td><?= htmlspecialchars($campagne['nom']) ?></td>
+                                         <td><?= htmlspecialchars($campagne['nom']) ?> <?= !empty($campagne['recurrence']) ? '<span class="badge bg-light-info" title="Renouvellement automatique">🔁</span>' : '' ?></td>
                                          <td><?= htmlspecialchars($campagne['description']) ?></td>
                                          <td><?= htmlspecialchars($campagne['date_debut']) ?></td>
                                          <td><?= htmlspecialchars($campagne['date_fin']) ?></td>

@@ -164,6 +164,154 @@ class CampaignQueueService
         return $stmt->rowCount();
     }
 
+    // ------------------------------------------------------------------
+    // Automatisations : campagnes récurrentes (Phase 2)
+    // ------------------------------------------------------------------
+
+    private const RECURRENCE_FREQUENCIES = ['daily', 'weekly', 'monthly'];
+
+    /**
+     * Attache une règle de récurrence à une campagne existante — celle-ci
+     * garde son propre cycle de vie normal (DRAFT -> lancée/planifiée
+     * manuellement une première fois comme d'habitude) ; la récurrence ne
+     * gouverne que les occurrences FUTURES, générées par
+     * processRecurringCampaigns(). $messageTemplate est le texte brut
+     * ({{variables}} incluses) — nécessaire pour re-personnaliser le message
+     * à chaque cycle, puisque messages.contenu ne stocke que la version déjà
+     * rendue pour un contact donné.
+     *
+     * @throws Exception si la fréquence n'est pas daily/weekly/monthly.
+     */
+    public function configureRecurrence(int $campaignId, string $frequency, string $messageTemplate, string $audienceType, ?int $groupeId, ?int $segmentId): void
+    {
+        if (!in_array($frequency, self::RECURRENCE_FREQUENCIES, true)) {
+            throw new Exception('Fréquence de récurrence invalide.');
+        }
+
+        $next = $this->computeNextOccurrence($frequency, new \DateTime('now', new \DateTimeZone('UTC')));
+
+        $this->pdo->prepare(
+            "UPDATE campagne SET recurrence = :freq, recurrence_audience_type = :audience_type,
+             recurrence_groupe_id = :groupe_id, recurrence_segment_id = :segment_id,
+             message_template = :template, next_occurrence_at = :next
+             WHERE id = :id"
+        )->execute([
+            ':freq' => $frequency,
+            ':audience_type' => $audienceType,
+            ':groupe_id' => $groupeId,
+            ':segment_id' => $segmentId,
+            ':template' => $messageTemplate,
+            ':next' => $next->format('Y-m-d H:i:s'),
+            ':id' => $campaignId,
+        ]);
+    }
+
+    public function stopRecurrence(int $campaignId): void
+    {
+        $this->pdo->prepare(
+            "UPDATE campagne SET recurrence = NULL, next_occurrence_at = NULL WHERE id = :id"
+        )->execute([':id' => $campaignId]);
+    }
+
+    private function computeNextOccurrence(string $frequency, \DateTimeInterface $from): \DateTime
+    {
+        $next = \DateTime::createFromInterface($from);
+        switch ($frequency) {
+            case 'daily':
+                $next->modify('+1 day');
+                break;
+            case 'weekly':
+                $next->modify('+7 days');
+                break;
+            case 'monthly':
+                $next->modify('+1 month');
+                break;
+        }
+
+        return $next;
+    }
+
+    /**
+     * Génère et lance (si le solde le permet) la prochaine occurrence de
+     * chaque campagne récurrente dont l'échéance est arrivée — à appeler
+     * périodiquement par un worker/cron, comme promoteDueCampaigns(), et
+     * pour la même raison : ça ne doit dépendre de personne ayant
+     * l'application ouverte. Opère à travers toutes les organisations (pas
+     * de session HTTP dans ce contexte), d'où l'instanciation directe de
+     * ContactService/SegmentService avec l'organization_id de chaque
+     * campagne trouvée plutôt que via les factories globales de
+     * config/services.php (qui dépendent de auth()->organizationId()).
+     *
+     * @return list<int> ids des nouvelles campagnes générées (échecs — audience
+     * vide, groupe/segment supprimé — silencieusement ignorés pour ce cycle,
+     * l'échéance est quand même avancée pour ne pas boucler indéfiniment).
+     */
+    public function processRecurringCampaigns(): array
+    {
+        $stmt = $this->pdo->prepare("SELECT * FROM campagne WHERE recurrence IS NOT NULL AND next_occurrence_at <= NOW()");
+        $stmt->execute();
+        $due = $stmt->fetchAll();
+
+        $spawned = [];
+        foreach ($due as $parent) {
+            $newId = $this->spawnOccurrence($parent);
+            if ($newId !== null) {
+                $spawned[] = $newId;
+            }
+
+            $next = $this->computeNextOccurrence($parent['recurrence'], new \DateTime($parent['next_occurrence_at'], new \DateTimeZone('UTC')));
+            $this->pdo->prepare("UPDATE campagne SET next_occurrence_at = :next WHERE id = :id")
+                ->execute([':next' => $next->format('Y-m-d H:i:s'), ':id' => $parent['id']]);
+        }
+
+        return $spawned;
+    }
+
+    private function spawnOccurrence(array $parent): ?int
+    {
+        $orgId = (int) $parent['organization_id'];
+        $contacts = new ContactService($this->pdo, $orgId);
+        $segments = new SegmentService($this->pdo, $orgId);
+
+        if ($parent['recurrence_audience_type'] === 'segment' && $parent['recurrence_segment_id']) {
+            $audience = $segments->resolveContacts((int) $parent['recurrence_segment_id']);
+        } else {
+            $groupeId = ($parent['recurrence_audience_type'] === 'group' && $parent['recurrence_groupe_id'])
+                ? (int) $parent['recurrence_groupe_id']
+                : null;
+            $audience = $contacts->allContacts($groupeId);
+        }
+
+        if (empty($audience)) {
+            return null;
+        }
+
+        $rows = [];
+        foreach ($audience as $c) {
+            $rendered = MessageTemplateService::render((string) $parent['message_template'], [
+                'nom' => $c['nom'], 'prenom' => $c['prenom'], 'telephone' => $c['telephone'], 'email' => $c['email'],
+            ]);
+            $rows[] = ['destinataire' => $c['telephone'], 'contenu' => $rendered['message'], 'nom' => $c['nom'], 'prenom' => $c['prenom']];
+        }
+
+        $newId = $this->createCampaign($orgId, $parent['nom'] . ' (auto)', (string) ($parent['description'] ?? ''), 'automatisation', $parent['created_by']);
+        $this->addRecipients($newId, $rows);
+
+        // §20 : une occurrence automatique ne s'auto-lance jamais si le solde
+        // ne suit pas — elle reste en DRAFT (visible dans la liste des
+        // campagnes) plutôt que d'échouer destinataire par destinataire.
+        $needed = 0;
+        foreach ($rows as $row) {
+            $needed += SmsCounterService::analyze($row['contenu'])['segments'];
+        }
+        $available = (int) ($this->orange->getBalance()['availableUnits'] ?? 0);
+        if ($needed <= $available) {
+            $this->queueCampaign($newId, false);
+        }
+
+        return $newId;
+    }
+
     public function pause(int $campaignId): void
     {
         $this->pdo->prepare("UPDATE campagne SET statut = 'PAUSED' WHERE id = :id AND statut = 'RUNNING'")

@@ -199,8 +199,32 @@ if (isset($_POST['create_campaign_recipients'])) {
     $result = campaignQueue()->addRecipients($campagneId, $rows);
     activityLog()->log('ajout_destinataires_campagne', $campagneId, $actor, "{$result['added']} ajouté(s) depuis $audienceLabel");
 
+    // Automatisations (Phase 2) : la campagne actuelle garde son cycle de vie
+    // normal (lancée/planifiée manuellement une première fois comme
+    // d'habitude) ; la récurrence ne gouverne que les occurrences futures.
+    $recurrenceMessage = '';
+    if (!empty($_POST['recurrence_enabled']) && !empty($_POST['recurrence'])) {
+        try {
+            campaignQueue()->configureRecurrence($campagneId, $_POST['recurrence'], $message, $audienceType, $groupeId, $segmentId);
+            $recurrenceMessage = ' Renouvellement automatique activé.';
+        } catch (Exception $e) {
+            $recurrenceMessage = ' ⚠️ Récurrence non activée : ' . $e->getMessage();
+        }
+    }
+
     $_SESSION['class'] = "alert alert-success";
-    $_SESSION['message'] = "✅ {$result['added']} destinataire(s) ajouté(s), {$result['duplicates']} doublon(s) ignoré(s).";
+    $_SESSION['message'] = "✅ {$result['added']} destinataire(s) ajouté(s), {$result['duplicates']} doublon(s) ignoré(s)." . $recurrenceMessage;
+    header("Location: ../app/index.php?page=campgagne&details=$campagneId");
+    exit;
+}
+
+if (isset($_POST['stop_recurrence'])) {
+    $campagneId = (int) ($_POST['campagne_id'] ?? 0);
+    assertOwnsCampagne($campagneId);
+    campaignQueue()->stopRecurrence($campagneId);
+    activityLog()->log('arret_recurrence_campagne', $campagneId, $actor);
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "✅ Renouvellement automatique arrêté.";
     header("Location: ../app/index.php?page=campgagne&details=$campagneId");
     exit;
 }

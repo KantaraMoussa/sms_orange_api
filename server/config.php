@@ -26,7 +26,7 @@ function PDO()
 }
 function getCampagne(int $organizationId)
 {
-    $sql = "SELECT id,nom,description,date_creation,date_debut,date_fin,statut,scheduled_at
+    $sql = "SELECT id,nom,description,date_creation,date_debut,date_fin,statut,scheduled_at,recurrence
         FROM campagne
         WHERE organization_id = :organization_id
         ORDER BY date_creation DESC";
