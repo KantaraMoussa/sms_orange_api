@@ -140,7 +140,12 @@ class AuthService
 
     public function check(): bool
     {
-        return isset($_SESSION['user_id']);
+        // organization_id est requis en plus de user_id : une session ouverte
+        // avant l'introduction du multi-tenant (ou autrement corrompue) n'a
+        // que user_id, et organizationId() (int) coercerait son absence en 0,
+        // un id d'organisation inexistant (violation FK plus loin, ex.
+        // NotificationService::create()). On force plutôt une reconnexion.
+        return isset($_SESSION['user_id'], $_SESSION['organization_id']);
     }
 
     public function user(): ?array
