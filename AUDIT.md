@@ -904,3 +904,22 @@ En touchant ce fichier, relecture complète déclenchée par prudence — a rév
 3. **Smoke test manuel approfondi, sans jamais déclencher un envoi Orange réel** (solde sandbox réel constaté : 906 unités, statut `EXPIRED`) : compteur/aperçu AJAX vérifié avec un message contenant un accent (a aussi révélé et corrigé un bug séparé : `json_encode()` renvoie silencieusement `false` — donc une réponse HTTP 200 vide sans indice d'erreur — sur des octets UTF-8 invalides, corrigé avec `JSON_INVALID_UTF8_SUBSTITUTE`) ; composition "tous mes contacts" avec variables → vérifié en base que chaque destinataire a reçu un message personnalisé distinct ; lancement en `dry_run=1` → traité de bout en bout jusqu'à `COMPLETED` avec `provider_message_id = 'DRY-RUN'` (aucun appel Orange réel) ; **test du blocage solde insuffisant** en insérant directement 1000 lignes `messages` synthétiques (contournement volontaire du wizard, uniquement pour dépasser le solde réel de 906 sans jamais appeler `queueCampaign()`), puis appel direct au handler `launch_campagne` sans `dry_run` → campagne restée `DRAFT`, zéro message envoyé, message d'erreur exact du cahier des charges (§20 : "Solde SMS insuffisant pour cette campagne.") ; validation du numéro de test invalide rejetée avant tout appel Orange.
 
 **Résultat** : le créateur de campagnes correspond maintenant réellement au cahier des charges (§15-§20) — audience choisie explicitement, message avec variables et compteur SMS fiable, aperçu sur un vrai contact, SMS de test, blocage effectif si le solde est insuffisant — sans qu'aucun test n'ait risqué d'envoyer un SMS réel. Un deuxième correctif de sécurité (IDOR) a été trouvé et corrigé au passage. Prochaine étape : Dashboard (KPI manquants identifiés dans l'audit initial de cette session : SMS envoyés aujourd'hui/ce mois, nombre de campagnes actives, solde restant en carte dédiée, graphique de consommation de crédits).
+
+---
+
+# JOURNAL — SESSION 8 (2026-09-12) : KPI manquants du dashboard (§32)
+
+**Contexte** : suite directe de la session 7, dernier écart identifié par son audit initial sur les 10 points de la feuille de route utilisateur.
+
+**Fichiers modifiés** :
+- `server/config.php` — `getSmsSentToday(int $organizationId)`, `getSmsSentThisMonth(int $organizationId)`, `getActiveCampaignsCount(int $organizationId)` (statuts `QUEUED`/`RUNNING`/`PAUSED`).
+- `app/templete/dashboard.php` — 4 cartes KPI en tête de page (même style que les cartes existantes de `app/index.php`) : SMS envoyés aujourd'hui, SMS envoyés ce mois, campagnes actives, solde SMS restant (réutilise `$_SESSION['soldeSms']`, déjà rafraîchi par `server/infosAPI.php` à chaque chargement du dashboard — aucun appel Orange supplémentaire).
+
+Graphique de consommation de crédits volontairement **non ajouté** : aucune table de transactions de crédits n'existe, et le graphique d'évolution des SMS envoyés déjà présent représente en pratique la même information (1 SMS envoyé ≈ 1 unité consommée) — un graphique séparé aurait été redondant sans données réellement nouvelles à montrer.
+
+**Tests réalisés** :
+1. `php -l` → aucune erreur.
+2. Suite PHPUnit complète → **108 tests, 206 assertions** (106 existants + 2 nouveaux : comptage "aujourd'hui" excluant un envoi vieux de 2 jours, comptage "actives" incluant QUEUED/RUNNING/PAUSED mais pas DRAFT/COMPLETED), aucune régression.
+3. Capture d'écran réelle (Playwright, session HTTP authentifiée) d'une organisation fraîchement créée : les 4 cartes affichent bien 0/0/0/906, aucune erreur console.
+
+**Résultat** : les 10 points de la feuille de route utilisateur (Dashboard, Import, Contacts+groupes, Créateur de campagnes, Templates+variables, SMS de test, Envoi massif, Suivi temps réel, Retry, Rapports) sont maintenant tous couverts. Prochaine étape : phase 2 de la feuille de route (Planification, Automatisations, Segments dynamiques, Crédits/facturation, Alertes, Analytics avancés) ou phase 3 (API publique, API Keys, Webhooks, Doc API, Multi-provider SMS, White-label), selon la priorité que l'utilisateur donnera.
