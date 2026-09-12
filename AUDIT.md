@@ -818,3 +818,41 @@ En touchant ce fichier, relecture complète déclenchée par prudence — a rév
 4. Recherche exhaustive (`grep -rln "matricule\|resultats_academique\|academicResults"`) sur tout le code actif (hors `archive/`/`vendor/`) → plus aucune occurrence fonctionnelle, seulement des commentaires déjà mis à jour.
 
 **Résultat** : SMS_ORANGE ne porte plus aucune trace fonctionnelle de son usage scolaire d'origine — le moteur de campagnes, les contacts/groupes, les modèles SMS et le centre de notifications restent entièrement génériques et utilisables par n'importe quelle entreprise, conformément au positionnement produit confirmé par l'utilisateur.
+
+---
+
+# JOURNAL — SESSION 5 (2026-09-12) : fondation multi-tenant — Entreprises/Organisations
+
+**Demande explicite de l'utilisateur** : nouvel ordre de développement fourni après le pivot produit générique (session 4) — "Entreprises/organisations" en tête de liste, suivi de "Utilisateurs & rôles", puis dashboard, import, contacts, campagnes, etc.
+
+**⚠️ Coordination multi-session** : au moment de cette demande, 4 autres sessions Claude Code étaient actives sur le même dépôt (`sms-orange-86`, `sms-orange-19`, `sms-orange-55`, `sms-orange-9b`). Vérifié auprès de chacune qu'aucune n'avait reçu le même ordre de développement et qu'aucune ne travaillait sur le schéma multi-tenant. `sms-orange-55` finissait alors le retrait du module "résultats académiques"/matricule (commit `6944d04`) et a explicitement demandé d'attendre son commit avant toute migration touchant les mêmes tables — respecté. Travail démarré uniquement après confirmation utilisateur ("la session est terminée tu peux commencer").
+
+**Stratégie** : migration additive plutôt que big-bang. Une organisation "bootstrap" (id=1, reprend les infos UGLC-SC) absorbe toutes les données existantes ; `organization_id` est ajouté `NOT NULL` partout avec backfill à 1, donc le comportement observable est inchangé tant qu'une seule organisation existe. L'isolation devient réelle uniquement une fois qu'une 2ᵉ organisation est créée (`app/register.php`) — vérifié par un test dédié plutôt que supposé.
+
+**Migration** (`database/migrations/012_organizations.sql`) : nouvelle table `organizations` ; `organization_id` (FK, `NOT NULL`, indexé) ajouté sur `utilisateurs`, `campagne`, `messages`, `contacts_v2`, `groupes_v2`, `imports_contacts`, `sms_templates`, `notifications`, `activity_logs`. L'unicité de `contacts_v2.telephone` passe de globale à `(organization_id, telephone)` — deux entreprises peuvent légitimement partager un numéro.
+
+**Fichiers créés** :
+- `src/Services/OrganizationService.php` — CRUD fiche entreprise.
+- `app/register.php` — auto-inscription publique (crée organisation + utilisateur OWNER dans une transaction), branché sur le bouton "S'inscrire" déjà présent sur `index.html`.
+- `app/templete/organisation.php` — page de paramètres (édition des infos de l'organisation courante).
+- `tests/Integration/OrganizationIsolationTest.php` — 8 tests dédiés au critère d'acceptation §59.
+
+**Fichiers modifiés** :
+- `src/Services/AuthService.php` — rôle `OWNER` ajouté ; session enrichie de `organization_id`/`organization_nom` ; `organizationId()` ; `createUser()` requiert désormais un `organization_id` ; nouvelle méthode `registerOrganization()` transactionnelle (rollback si l'email existe déjà ou si l'organisation échoue).
+- `config/services.php` — `contacts()`, `smsTemplates()`, `notifications()`, `activityLog()` construisent désormais leur Service avec `auth()->organizationId()` : l'isolation est portée par le Service lui-même, pas par chaque appelant. `campaignQueue()` reste volontairement non scopée (le worker CLI `server/campaign_worker.php` n'a pas de session et doit traiter toutes les organisations).
+- `src/Services/ContactService.php`, `SmsTemplateService.php`, `NotificationService.php`, `ActivityLogger.php` — chaque requête SQL filtre/tague désormais par `organization_id` ; `addContactToGroup`/`removeContactFromGroup` vérifient explicitement que le groupe ET le contact appartiennent à l'organisation courante (sinon un id d'une autre organisation, deviné ou énuméré, pourrait être rattaché silencieusement).
+- `src/Services/CampaignQueueService.php` — `createCampaign()` prend un `organization_id` explicite ; `addRecipients()` reprend l'organisation de la campagne elle-même par sous-requête (pas de changement de signature, donc pas de risque de désynchronisation entre le message et sa campagne).
+- `server/config.php` — `getCampagne`, `getGlobalSmsStats`, `getSmsEvolution`, `getSuccessRateEvolution`, `getCampaignPerformance`, `getCampaignsReport`, `getTopErrors` prennent désormais un `organization_id`. Nouvelle fonction `assertOwnsCampagne()` : garde-fou anti-IDOR (404 si le `campagne_id` fourni par le client n'appartient pas à l'organisation courante), utilisée par tous les handlers mutants de campagne dans `server/app.php` (lancement, pause, reprise, annulation, retry, import) et par `app/templete/detail-campagne.php` en lecture.
+- `server/app.php` — gate de rôle en tête de fichier élargie à `OWNER` ; `create_campagne`/`send_to_group` transmettent l'organisation courante ; nouveau handler `update_organisation` (cible toujours `auth()->organizationId()`, jamais un id soumis par le formulaire).
+- `app/index.php` — nouvelle section de sidebar "Paramètres" → "Organisation" ; nom de l'organisation affiché dans le menu profil ; route `?page=organisation`.
+- `bin/create-user.php` — accepte un `organization_id` optionnel (défaut : 1) ; commentaire mis à jour (l'auto-inscription publique existe désormais, ce script sert à ajouter des comptes à une organisation existante).
+- `bin/load-test.php` — `createCampaign()` appelé avec l'organisation bootstrap.
+- Tests existants (`ContactServiceTest`, `SmsTemplateServiceTest`, `NotificationServiceTest`, `ActivityLoggerTest`, `CampaignQueueServiceTest`, `AuthServiceTest`) — adaptés aux nouvelles signatures.
+
+**Tests réalisés** :
+1. `php -l` sur tous les fichiers modifiés → aucune erreur.
+2. Suite PHPUnit complète → **91 tests, 180 assertions** (83 existants + 8 nouveaux sur l'isolation), aucune régression.
+3. Migration appliquée sur la vraie base `apiSms` (`php database/migrate.php`) → organisation bootstrap créée (id=1, "UGLC-SC"), toutes les tables backfillées, comptés vérifiés ligne par ligne avant/après.
+4. **Smoke test manuel de bout en bout** (serveur `php -S` local, cookies de session réels, nettoyé après coup) : inscription d'une organisation "Acme", création d'un contact et d'une campagne ; inscription d'une organisation "Beta" ; confirmé que Beta ne voit ni le contact ni la campagne d'Acme dans ses pages ; confirmé que la tentative de Beta de consulter ou de mettre en pause la campagne d'Acme via son `campagne_id` renvoie "Campagne introuvable" (404) alors qu'Acme y accède normalement.
+
+**Résultat** : le socle multi-tenant est en place et vérifié — pas seulement une colonne ajoutée, mais une isolation effective à chaque lecture/écriture, testée à la fois unitairement et en conditions réelles (deux organisations concurrentes, tentative de traversée explicite). Aucune régression sur les fonctionnalités mono-tenant existantes (comportement identique tant qu'une seule organisation existe). Prochaine étape de la feuille de route utilisateur : "Utilisateurs & rôles" (rôles fins par organisation, gestion d'équipe/invitations — actuellement seul `bin/create-user.php` permet d'ajouter un coéquipier).
