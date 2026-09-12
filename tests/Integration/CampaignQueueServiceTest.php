@@ -175,4 +175,58 @@ class CampaignQueueServiceTest extends TestCase
         $stmt->execute([':id' => $messages[1]['id']]);
         $this->assertSame('echec', $stmt->fetchColumn(), 'a definitive failure must stay failed, never silently retried');
     }
+
+    public function testEstimateSmsNeededSumsSegmentsNotJustRecipientCount(): void
+    {
+        $id = $this->makeCampaign('PHPUnit estimate test');
+        // Un message court (1 segment) + un message long forçant 2 segments GSM-7 (>160 caractères).
+        $longMessage = str_repeat('A', 200);
+        $this->queue->addRecipients($id, [
+            ['destinataire' => '622990100', 'contenu' => 'Court'],
+            ['destinataire' => '622990101', 'contenu' => $longMessage],
+        ]);
+
+        $needed = estimateSmsNeeded($id);
+
+        $this->assertSame(3, $needed, '1 (short) + 2 (long, >160 GSM-7 chars) = 3 segments, not 2 recipients');
+    }
+
+    public function testEstimateSmsNeededIgnoresAlreadyProcessedMessages(): void
+    {
+        $id = $this->makeCampaign('PHPUnit estimate processed test');
+        $this->queue->addRecipients($id, $this->fakeRows(2));
+        $messages = getMessageCampagne($id);
+        $this->pdo->prepare("UPDATE messages SET statut = 'envoye' WHERE id = :id")->execute([':id' => $messages[0]['id']]);
+
+        $needed = estimateSmsNeeded($id);
+
+        $this->assertSame(1, $needed, 'only en_attente messages count toward what launching would still cost');
+    }
+
+    /**
+     * Reproduit exactement ce que fait server/app.php::create_campaign_recipients
+     * (audience "tous les contacts" / "un groupe") : un message avec variables
+     * rendu individuellement par destinataire via MessageTemplateService avant
+     * addRecipients() — cahier des charges §16-17.
+     */
+    public function testRecipientsBuiltFromAudienceHaveVariablesRenderedPerContact(): void
+    {
+        $id = $this->makeCampaign('PHPUnit audience render test');
+        $contacts = [
+            ['nom' => 'Diallo', 'prenom' => 'Fatoumata', 'telephone' => '+224622990200'],
+            ['nom' => 'Barry', 'prenom' => 'Ibrahima', 'telephone' => '+224622990201'],
+        ];
+
+        $rows = [];
+        foreach ($contacts as $c) {
+            $rendered = \App\Services\MessageTemplateService::render('Bonjour {{prenom}} {{nom}} !', $c);
+            $rows[] = ['destinataire' => $c['telephone'], 'contenu' => $rendered['message'], 'nom' => $c['nom'], 'prenom' => $c['prenom']];
+        }
+        $this->queue->addRecipients($id, $rows);
+
+        $messages = getMessageCampagne($id);
+        $contents = array_column($messages, 'contenu');
+        $this->assertContains('Bonjour Fatoumata Diallo !', $contents);
+        $this->assertContains('Bonjour Ibrahima Barry !', $contents);
+    }
 }

@@ -142,12 +142,128 @@ if (isset($_POST['import_excel_recipients']) && isset($_FILES['excelFile']) && i
     exit;
 }
 
+// Compose un message (avec variables {{nom}}/{{prenom}}/{{telephone}}/{{email}})
+// pour toute l'audience "tous mes contacts" ou "un groupe" (§15 étape 2,
+// §16-17) — alternative à l'import Excel quand on veut envoyer le même
+// message (personnalisé) à une audience déjà connue de la plateforme.
+if (isset($_POST['create_campaign_recipients'])) {
+    $campagneId = (int) ($_POST['campagne_id'] ?? 0);
+    $campagne = assertOwnsCampagne($campagneId);
+
+    if ($campagne['statut'] !== 'DRAFT') {
+        $_SESSION['class'] = "alert alert-danger";
+        $_SESSION['message'] = "❌ Impossible d'ajouter des destinataires : campagne déjà lancée.";
+        header("Location: ../app/index.php?page=campgagne&details=$campagneId");
+        exit;
+    }
+
+    $audienceType = $_POST['audience_type'] ?? 'all';
+    $groupeId = ($audienceType === 'group' && !empty($_POST['groupe_id'])) ? (int) $_POST['groupe_id'] : null;
+    $message = trim($_POST['campaign_message'] ?? '');
+
+    if ($message === '') {
+        $_SESSION['class'] = "alert alert-warning";
+        $_SESSION['message'] = "Le message est obligatoire.";
+        header("Location: ../app/index.php?page=campgagne&details=$campagneId");
+        exit;
+    }
+
+    $audience = contacts()->allContacts($groupeId);
+    if (empty($audience)) {
+        $_SESSION['class'] = "alert alert-warning";
+        $_SESSION['message'] = "Aucun contact dans cette audience.";
+        header("Location: ../app/index.php?page=campgagne&details=$campagneId");
+        exit;
+    }
+
+    $rows = [];
+    foreach ($audience as $c) {
+        $rendered = \App\Services\MessageTemplateService::render($message, [
+            'nom' => $c['nom'],
+            'prenom' => $c['prenom'],
+            'telephone' => $c['telephone'],
+            'email' => $c['email'],
+        ]);
+        $rows[] = [
+            'destinataire' => $c['telephone'],
+            'contenu' => $rendered['message'],
+            'nom' => $c['nom'],
+            'prenom' => $c['prenom'],
+        ];
+    }
+
+    $result = campaignQueue()->addRecipients($campagneId, $rows);
+    activityLog()->log('ajout_destinataires_campagne', $campagneId, $actor, "{$result['added']} ajouté(s) depuis " . ($groupeId !== null ? "groupe #$groupeId" : 'tous les contacts'));
+
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "✅ {$result['added']} destinataire(s) ajouté(s), {$result['duplicates']} doublon(s) ignoré(s).";
+    header("Location: ../app/index.php?page=campgagne&details=$campagneId");
+    exit;
+}
+
+// SMS de test (§19) : passe par le même service Orange que l'envoi réel,
+// mais hors file d'attente — n'affecte jamais les compteurs/statuts de la
+// campagne, distingué dans le journal d'activité.
+if (isset($_POST['send_test_sms'])) {
+    $campagneId = (int) ($_POST['campagne_id'] ?? 0);
+    assertOwnsCampagne($campagneId);
+
+    $numero = trim($_POST['test_numero'] ?? '');
+    $pattern = "/^(\+224|00224)6\d{8}$/";
+
+    if (!preg_match($pattern, $numero)) {
+        $_SESSION['class'] = "alert alert-danger";
+        $_SESSION['message'] = "❌ Numéro de test invalide (format attendu : +224XXXXXXXXX).";
+        header("Location: ../app/index.php?page=campgagne&details=$campagneId");
+        exit;
+    }
+
+    $stmt = PDO()->prepare("SELECT contenu FROM messages WHERE campagne_id = :id ORDER BY id LIMIT 1");
+    $stmt->execute([':id' => $campagneId]);
+    $contenu = $stmt->fetchColumn();
+
+    if (!$contenu) {
+        $_SESSION['class'] = "alert alert-warning";
+        $_SESSION['message'] = "Ajoutez d'abord des destinataires avant d'envoyer un SMS de test.";
+        header("Location: ../app/index.php?page=campgagne&details=$campagneId");
+        exit;
+    }
+
+    try {
+        orangeSms()->sendSms($numero, $contenu);
+        activityLog()->log('test_sms_campagne', $campagneId, $actor, "test envoyé à $numero");
+        $_SESSION['class'] = "alert alert-success";
+        $_SESSION['message'] = "✅ SMS de test envoyé à $numero.";
+    } catch (Exception $e) {
+        $_SESSION['class'] = "alert alert-danger";
+        $_SESSION['message'] = "❌ Échec de l'envoi du test : " . $e->getMessage();
+    }
+    header("Location: ../app/index.php?page=campgagne&details=$campagneId");
+    exit;
+}
+
 // Passe une campagne DRAFT en file d'attente (§5) — le traitement réel se fait
 // ensuite par lots via server/campaign_worker.php, jamais dans cette requête.
 if (isset($_POST['launch_campagne'])) {
     $campagneId = (int) $_POST['campagne_id'];
     assertOwnsCampagne($campagneId);
     $dryRun = isset($_POST['dry_run']);
+
+    // §20 : bloquer un lancement dont le coût dépasse le solde Orange
+    // disponible plutôt que de laisser la campagne échouer destinataire par
+    // destinataire une fois lancée. Pas de vérification en dry_run (aucun
+    // SMS réel n'est consommé).
+    if (!$dryRun) {
+        $needed = estimateSmsNeeded($campagneId);
+        $available = (int) (orangeSms()->getBalance()['availableUnits'] ?? 0);
+        if ($needed > $available) {
+            $_SESSION['class'] = "alert alert-danger";
+            $_SESSION['message'] = "❌ Solde SMS insuffisant pour cette campagne : $needed SMS nécessaires, $available disponible(s).";
+            header("Location: ../app/index.php?page=campgagne&details=$campagneId");
+            exit;
+        }
+    }
+
     campaignQueue()->queueCampaign($campagneId, $dryRun);
     activityLog()->log('lancement_campagne', $campagneId, $actor, $dryRun ? 'dry_run' : null);
     header("Location: ../app/index.php?page=campgagne&details=$campagneId");
@@ -541,11 +657,21 @@ if (isset($_POST['send_to_group'])) {
         50
     );
 
+    // §16-17 : rendre les variables ({{nom}}/{{prenom}}/...) au lieu d'envoyer
+    // le texte brut du formulaire tel quel à tout le monde (bug trouvé en
+    // auditant ce flux après l'ajout du créateur de campagne par audience,
+    // qui utilise le même moteur — voir create_campaign_recipients ci-dessus).
     $recipients = [];
     foreach ($groupContacts as $c) {
+        $rendered = \App\Services\MessageTemplateService::render($message, [
+            'nom' => $c['nom'],
+            'prenom' => $c['prenom'],
+            'telephone' => $c['telephone'],
+            'email' => $c['email'],
+        ]);
         $recipients[] = [
             'destinataire' => $c['telephone'],
-            'contenu' => $message,
+            'contenu' => $rendered['message'],
             'nom' => $c['nom'],
             'prenom' => $c['prenom'],
         ];

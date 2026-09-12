@@ -133,4 +133,34 @@ class ContactServiceTest extends TestCase
 
         $this->assertEmpty(array_filter($this->service->allContacts(null, 'NoSuchNameXYZ'), fn($c) => $c['nom'] === 'PHPUNITCONTACT-Zoumanigui'));
     }
+
+    public function testSampleContactReturnsNullWhenNoneExist(): void
+    {
+        $this->assertNull($this->service->sampleContact(999999999));
+    }
+
+    public function testSampleContactReturnsOneRealContactFromTheGroup(): void
+    {
+        $groupId = $this->service->createGroup('PHPUNITGROUP-Sample');
+        $this->groupIds[] = $groupId;
+        $otherContactId = $this->service->createContact('PHPUNITCONTACT-OutsideGroup', 'X', '622990007');
+        $inGroupId = $this->service->createContact('PHPUNITCONTACT-InGroup', 'Y', '622990008');
+        $this->service->addContactToGroup($groupId, $inGroupId);
+
+        $sample = $this->service->sampleContact($groupId);
+
+        $this->assertNotNull($sample);
+        $this->assertSame('PHPUNITCONTACT-InGroup', $sample['nom']);
+        $this->assertNotSame($otherContactId, $sample['id']);
+    }
+
+    public function testSampleContactWithoutGroupPicksAnyContact(): void
+    {
+        $this->service->createContact('PHPUNITCONTACT-AnySample', 'Z', '622990009');
+
+        $sample = $this->service->sampleContact(null);
+
+        $this->assertNotNull($sample);
+        $this->assertArrayHasKey('telephone', $sample);
+    }
 }

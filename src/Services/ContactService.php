@@ -94,6 +94,32 @@ class ContactService
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    /**
+     * Un seul contact réel de l'audience choisie, pour la prévisualisation
+     * (§17 : le moteur de prévisualisation doit utiliser un vrai contact, pas
+     * un placeholder) sans jamais charger toute l'audience en mémoire pour
+     * ça (§42, jusqu'à 10 000+ contacts).
+     */
+    public function sampleContact(?int $groupeId = null): ?array
+    {
+        $where = ['c.organization_id = :organization_id'];
+        $params = [':organization_id' => $this->organizationId];
+        $join = '';
+
+        if ($groupeId !== null) {
+            $join = 'JOIN groupe_contacts_v2 gc ON gc.contact_id = c.id';
+            $where[] = 'gc.groupe_id = :groupe_id';
+            $params[':groupe_id'] = $groupeId;
+        }
+
+        $sql = "SELECT c.* FROM contacts_v2 c $join WHERE " . implode(' AND ', $where) . ' ORDER BY c.id LIMIT 1';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row !== false ? $row : null;
+    }
+
     public function countContacts(): int
     {
         $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM contacts_v2 WHERE organization_id = :organization_id");

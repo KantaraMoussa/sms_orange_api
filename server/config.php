@@ -71,6 +71,27 @@ function assertOwnsCampagne(int $campagneId): array
 
     return $campagne;
 }
+
+/**
+ * Nombre réel de SMS nécessaires pour terminer une campagne (§18, §20) —
+ * somme des segments de chaque message encore en attente, jamais une simple
+ * estimation "1 destinataire = 1 SMS" qui sous-estimerait les messages
+ * longs (§18 : ne jamais sous-estimer). Utilisé avant de bloquer un
+ * lancement pour solde insuffisant.
+ */
+function estimateSmsNeeded(int $campagneId): int
+{
+    $stmt = PDO()->prepare("SELECT contenu FROM messages WHERE campagne_id = :id AND statut = 'en_attente'");
+    $stmt->execute([':id' => $campagneId]);
+
+    $total = 0;
+    while (($contenu = $stmt->fetchColumn()) !== false) {
+        $total += \App\Services\SmsCounterService::analyze((string) $contenu)['segments'];
+    }
+
+    return $total;
+}
+
 function getMessageCampagne($campagneId)
 {
     $sql = "SELECT id, contenu, destinataire, date_envoi, statut, nom, prenom, error_code, error_message, tentative_count, date_traitement
