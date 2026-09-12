@@ -240,6 +240,42 @@ function getSuccessRateEvolution(int $organizationId, int $days = 14)
     return $series;
 }
 
+/**
+ * KPI dashboard manquants identifiés en auditant l'existant (session 7) :
+ * "SMS envoyés aujourd'hui/ce mois" et "campagnes actives" n'étaient nulle
+ * part, seule une évolution 14 jours et un cumul all-time existaient.
+ */
+function getSmsSentToday(int $organizationId): int
+{
+    $stmt = PDO()->prepare(
+        "SELECT COUNT(*) FROM messages WHERE organization_id = :org AND statut = 'envoye' AND date_traitement::date = CURRENT_DATE"
+    );
+    $stmt->execute([':org' => $organizationId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
+function getSmsSentThisMonth(int $organizationId): int
+{
+    $stmt = PDO()->prepare(
+        "SELECT COUNT(*) FROM messages WHERE organization_id = :org AND statut = 'envoye'
+         AND date_trunc('month', date_traitement) = date_trunc('month', CURRENT_DATE)"
+    );
+    $stmt->execute([':org' => $organizationId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
+function getActiveCampaignsCount(int $organizationId): int
+{
+    $stmt = PDO()->prepare(
+        "SELECT COUNT(*) FROM campagne WHERE organization_id = :org AND statut IN ('QUEUED', 'RUNNING', 'PAUSED')"
+    );
+    $stmt->execute([':org' => $organizationId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
 function getCampaignPerformance(int $organizationId, int $limit = 6)
 {
     $sql = "SELECT nom, nombre_envoyes, nombre_echecs

@@ -5,7 +5,45 @@ $globalStats = getGlobalSmsStats($orgId);
 $performance = getCampaignPerformance($orgId, 6);
 $successRateEvolution = getSuccessRateEvolution($orgId, 14);
 $recentCampagnes = array_slice(getCampagne($orgId), 0, 5);
+$smsToday = getSmsSentToday($orgId);
+$smsThisMonth = getSmsSentThisMonth($orgId);
+$activeCampaigns = getActiveCampaignsCount($orgId);
 ?>
+<div class="row">
+    <div class="col-md-6 col-xl-3">
+        <div class="card bg-grd-primary order-card">
+            <div class="card-body">
+                <h6 class="text-white">SMS envoyés aujourd'hui</h6>
+                <h2 class="text-end text-white"><i class="feather icon-send float-start"></i><span><?= $smsToday ?></span></h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="card bg-grd-success order-card">
+            <div class="card-body">
+                <h6 class="text-white">SMS envoyés ce mois</h6>
+                <h2 class="text-end text-white"><i class="feather icon-calendar float-start"></i><span><?= $smsThisMonth ?></span></h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="card bg-grd-warning order-card">
+            <div class="card-body">
+                <h6 class="text-white">Campagnes actives</h6>
+                <h2 class="text-end text-white"><i class="feather icon-activity float-start"></i><span><?= $activeCampaigns ?></span></h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="card bg-grd-danger order-card">
+            <div class="card-body">
+                <h6 class="text-white">Solde SMS restant</h6>
+                <h2 class="text-end text-white"><i class="feather icon-credit-card float-start"></i><span><?= htmlspecialchars($_SESSION['soldeSms'] ?? '—') ?></span></h2>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row">
     <div class="col-sm-7">
         <div class="card">

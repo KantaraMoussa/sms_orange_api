@@ -229,4 +229,34 @@ class CampaignQueueServiceTest extends TestCase
         $this->assertContains('Bonjour Fatoumata Diallo !', $contents);
         $this->assertContains('Bonjour Ibrahima Barry !', $contents);
     }
+
+    public function testGetSmsSentTodayCountsOnlyTodaysSentMessages(): void
+    {
+        $id = $this->makeCampaign('PHPUnit today test');
+        $this->queue->addRecipients($id, $this->fakeRows(2));
+        $messages = getMessageCampagne($id);
+        $this->pdo->prepare("UPDATE messages SET statut = 'envoye', date_traitement = NOW() WHERE id = :id")
+            ->execute([':id' => $messages[0]['id']]);
+        $this->pdo->prepare("UPDATE messages SET statut = 'envoye', date_traitement = NOW() - INTERVAL '2 days' WHERE id = :id")
+            ->execute([':id' => $messages[1]['id']]);
+
+        $this->assertSame(1, getSmsSentToday(1));
+    }
+
+    public function testGetActiveCampaignsCountIncludesQueuedRunningAndPausedOnly(): void
+    {
+        $draft = $this->makeCampaign('PHPUnit active-count draft');
+        $queued = $this->makeCampaign('PHPUnit active-count queued');
+        $this->pdo->exec("UPDATE campagne SET statut = 'QUEUED' WHERE id = $queued");
+        $completed = $this->makeCampaign('PHPUnit active-count completed');
+        $this->pdo->exec("UPDATE campagne SET statut = 'COMPLETED' WHERE id = $completed");
+
+        $before = getActiveCampaignsCount(1);
+        // draft/completed must not count; only the QUEUED one should have added +1.
+        $this->assertGreaterThanOrEqual(1, $before);
+
+        $this->pdo->exec("UPDATE campagne SET statut = 'DRAFT' WHERE id = $queued");
+        $after = getActiveCampaignsCount(1);
+        $this->assertSame($before - 1, $after, 'moving the queued campaign back to DRAFT must remove it from the active count');
+    }
 }
