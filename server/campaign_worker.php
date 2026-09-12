@@ -27,8 +27,15 @@ if (!$campaignId) {
     exit;
 }
 
+// §59 : ce endpoint est appelé depuis le navigateur (polling AJAX), avec un
+// campagne_id visible/modifiable côté client — sans cette vérification,
+// n'importe quel utilisateur connecté (de n'importe quelle organisation)
+// pouvait faire avancer l'envoi ET lire la progression de la campagne d'une
+// autre organisation en devinant/énumérant son id. Trouvé en auditant ce
+// fichier après coup, absent de la vérification anti-IDOR faite ailleurs
+// dans server/app.php lors de l'introduction du multi-tenant.
 $campagne = getSingleCampagne($campaignId);
-if (!$campagne) {
+if (!$campagne || (int) $campagne['organization_id'] !== auth()->organizationId()) {
     http_response_code(404);
     echo json_encode(['error' => 'Campagne introuvable']);
     exit;
