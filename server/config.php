@@ -379,16 +379,39 @@ function getCampaignPerformance(int $organizationId, int $limit = 6)
  */
 function resolveDateRangePreset(string $preset, ?string $from, ?string $to): array
 {
-    $today = date('Y-m-d');
+    // Les timestamps comparés (messages.date_traitement, campagne.date_creation)
+    // sont écrits en UTC par PostgreSQL (NOW()), mais PHP tourne par défaut
+    // sur un autre fuseau dans cet environnement (Europe/Berlin) — date()
+    // calculerait "aujourd'hui" avec l'heure murale locale, en avance de 1 à
+    // 2h sur l'UTC, ce qui bascule au jour suivant plusieurs heures avant
+    // minuit UTC (bug reproduit : "aujourd'hui" à 01h du matin heure de
+    // Berlin excluait un envoi fait quelques minutes plus tôt, toujours "hier"
+    // en UTC). Même piège que celui déjà documenté pour locked_until
+    // (AuthService) et scheduled_at (CampaignQueueService::schedule) — utcNow()
+    // ci-dessous centralise le correctif pour éviter une 4e occurrence.
+    $today = utcToday();
 
     return match ($preset) {
         'today' => ['from' => $today, 'to' => $today],
-        '7d' => ['from' => date('Y-m-d', strtotime('-6 days')), 'to' => $today],
-        '30d' => ['from' => date('Y-m-d', strtotime('-29 days')), 'to' => $today],
-        'month' => ['from' => date('Y-m-01'), 'to' => $today],
+        '7d' => ['from' => utcDateOffset(-6), 'to' => $today],
+        '30d' => ['from' => utcDateOffset(-29), 'to' => $today],
+        'month' => [
+            'from' => (new DateTime('now', new DateTimeZone('UTC')))->format('Y-m-01'),
+            'to' => $today,
+        ],
         'custom' => ['from' => $from ?: null, 'to' => $to ?: null],
         default => ['from' => null, 'to' => null],
     };
+}
+
+function utcToday(): string
+{
+    return (new DateTime('now', new DateTimeZone('UTC')))->format('Y-m-d');
+}
+
+function utcDateOffset(int $days): string
+{
+    return (new DateTime('now', new DateTimeZone('UTC')))->modify("$days days")->format('Y-m-d');
 }
 
 function getCampaignsReport(int $organizationId, ?string $dateFrom = null, ?string $dateTo = null, ?int $campagneId = null)

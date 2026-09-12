@@ -47,15 +47,18 @@ class AnalyticsTest extends TestCase
     public function testResolveDateRangePresetToday(): void
     {
         $range = resolveDateRangePreset('today', null, null);
-        $this->assertSame(date('Y-m-d'), $range['from']);
-        $this->assertSame(date('Y-m-d'), $range['to']);
+        // gmdate(), pas date() : les valeurs comparées viennent de PostgreSQL
+        // (UTC) — voir le commentaire de resolveDateRangePreset() dans
+        // server/config.php pour le bug que ça évite de reproduire ici.
+        $this->assertSame(gmdate('Y-m-d'), $range['from']);
+        $this->assertSame(gmdate('Y-m-d'), $range['to']);
     }
 
     public function testResolveDateRangePreset7Days(): void
     {
         $range = resolveDateRangePreset('7d', null, null);
-        $this->assertSame(date('Y-m-d', strtotime('-6 days')), $range['from']);
-        $this->assertSame(date('Y-m-d'), $range['to']);
+        $this->assertSame(gmdate('Y-m-d', strtotime('-6 days')), $range['from']);
+        $this->assertSame(gmdate('Y-m-d'), $range['to']);
     }
 
     public function testResolveDateRangePresetCustomPassesThroughInput(): void
@@ -86,7 +89,7 @@ class AnalyticsTest extends TestCase
         $this->pdo->prepare("UPDATE messages SET statut = 'envoye', date_traitement = NOW() - INTERVAL '10 days' WHERE id = :id")
             ->execute([':id' => $messages[1]['id']]);
 
-        $today = date('Y-m-d');
+        $today = gmdate('Y-m-d');
         $stats = getGlobalSmsStats(1, $today, $today, $id);
 
         $this->assertSame(1, $stats['envoyes'], 'only the send from today must count within a today-only range');
@@ -113,7 +116,7 @@ class AnalyticsTest extends TestCase
     {
         $id = $this->makeCampaign('PHPUnit analytics report filter');
 
-        $matchToday = getCampaignsReport(1, date('Y-m-d'), date('Y-m-d'), $id);
+        $matchToday = getCampaignsReport(1, gmdate('Y-m-d'), gmdate('Y-m-d'), $id);
         $this->assertCount(1, array_filter($matchToday, fn($c) => (int) $c['id'] === $id));
 
         $matchOldRange = getCampaignsReport(1, '2000-01-01', '2000-01-02', $id);
