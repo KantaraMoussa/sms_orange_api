@@ -401,17 +401,26 @@ if (isset($_POST['update_organisation'])) {
         http_response_code(403);
         exit('Accès refusé : seuls les administrateurs peuvent modifier les paramètres de l\'organisation.');
     }
-    organizations()->update(auth()->organizationId(), [
-        'nom' => trim($_POST['org_nom'] ?? ''),
-        'secteur' => trim($_POST['org_secteur'] ?? '') ?: null,
-        'telephone' => trim($_POST['org_telephone'] ?? '') ?: null,
-        'email' => trim($_POST['org_email'] ?? '') ?: null,
-        'adresse' => trim($_POST['org_adresse'] ?? '') ?: null,
-        'pays' => trim($_POST['org_pays'] ?? '') ?: null,
-        'fuseau_horaire' => trim($_POST['org_fuseau_horaire'] ?? '') ?: 'Africa/Conakry',
-        'devise' => trim($_POST['org_devise'] ?? '') ?: 'GNF',
-        'sender_name' => trim($_POST['org_sender_name'] ?? '') ?: null,
-    ]);
+    // Champ par champ, seulement si soumis : le formulaire "Alertes" de
+    // app/templete/organisation.php ne poste que org_nom (obligatoire) et
+    // org_low_balance_threshold — construire l'update avec tous les champs
+    // organization_id => valeur ?? null effacerait secteur/téléphone/etc. à
+    // chaque enregistrement du seuil d'alerte.
+    $orgUpdate = ['nom' => trim($_POST['org_nom'] ?? '')];
+    $optionalOrgFields = [
+        'org_secteur' => 'secteur', 'org_telephone' => 'telephone', 'org_email' => 'email',
+        'org_adresse' => 'adresse', 'org_pays' => 'pays', 'org_fuseau_horaire' => 'fuseau_horaire',
+        'org_devise' => 'devise', 'org_sender_name' => 'sender_name',
+    ];
+    foreach ($optionalOrgFields as $postKey => $column) {
+        if (isset($_POST[$postKey])) {
+            $orgUpdate[$column] = trim($_POST[$postKey]) ?: null;
+        }
+    }
+    if (isset($_POST['org_low_balance_threshold'])) {
+        $orgUpdate['low_balance_threshold'] = max(0, (int) $_POST['org_low_balance_threshold']);
+    }
+    organizations()->update(auth()->organizationId(), $orgUpdate);
     activityLog()->log('modification_organisation', null, $actor);
     $_SESSION['class'] = "alert alert-success";
     $_SESSION['message'] = "✅ Informations de l'organisation mises à jour.";

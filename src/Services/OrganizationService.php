@@ -13,7 +13,7 @@ class OrganizationService
 {
     private const EDITABLE_FIELDS = [
         'nom', 'logo_url', 'secteur', 'telephone', 'email', 'adresse',
-        'pays', 'fuseau_horaire', 'devise', 'sender_name',
+        'pays', 'fuseau_horaire', 'devise', 'sender_name', 'low_balance_threshold',
     ];
 
     public function __construct(private PDO $pdo)

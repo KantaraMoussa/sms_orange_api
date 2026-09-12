@@ -12,7 +12,11 @@ if (($_GET['page'] ?? '') === "dashdoards") {
 
     // Centre de notifications (§73) : alerte de solde faible, au plus une fois
     // par jour (le solde ne change pas assez vite pour justifier plus).
-    $threshold = (int) env('LOW_BALANCE_THRESHOLD', 2000);
+    // Seuil configurable par organisation (§34) — plus une variable
+    // d'environnement globale, incohérente en multi-tenant : deux
+    // entreprises n'ont pas le même volume d'envoi ni le même seuil pertinent.
+    $organization = organizations()->find(auth()->organizationId());
+    $threshold = (int) ($organization['low_balance_threshold'] ?? 2000);
     if ((int) $balance["availableUnits"] < $threshold) {
         notifications()->createUnlessRecentDuplicate(
             'solde_faible',

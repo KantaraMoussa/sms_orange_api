@@ -58,6 +58,29 @@ $org = organizations()->find(auth()->organizationId());
                 </form>
             </div>
         </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5>Alertes (§34)</h5>
+            </div>
+            <div class="card-body">
+                <form method="post" action="../server/app.php">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="org_nom" value="<?= htmlspecialchars($org['nom'] ?? '') ?>">
+                    <div class="col-md-6">
+                        <label class="form-label">Alerter si le solde SMS descend sous</label>
+                        <div class="input-group">
+                            <input type="number" min="0" name="org_low_balance_threshold" class="form-control" value="<?= (int) ($org['low_balance_threshold'] ?? 2000) ?>">
+                            <span class="input-group-text">SMS</span>
+                        </div>
+                        <small class="text-muted">Une notification est envoyée au plus une fois par jour tant que le solde reste sous ce seuil.</small>
+                    </div>
+                    <div class="mt-3">
+                        <button type="submit" name="update_organisation" class="btn btn-outline-primary">Enregistrer le seuil</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
     <div class="col-xl-4">
         <div class="card">
