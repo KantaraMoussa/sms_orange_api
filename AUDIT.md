@@ -986,3 +986,24 @@ Ajout : colonne `campagne.scheduled_at` (migration `014_campaign_scheduling.sql`
 3. Smoke test HTTP complet : création d'un segment (« recherche = Conakry ») sur 2 contacts dont 1 seul correspond, aperçu en direct confirmé (1), utilisé comme audience de campagne → vérifié en base que seul le contact correspondant a été ajouté, avec son message personnalisé ; suppression du segment vérifiée.
 
 **Résultat** : les segments dynamiques fonctionnent comme troisième mode de ciblage de campagne, à parité avec "tous les contacts" et "un groupe" (même moteur de rendu de variables, même aperçu, même compteur SMS). Reste à faire côté Phase 2 : Analytics avancés, Automatisations, Crédits/facturation.
+
+---
+
+# JOURNAL — SESSION 11 (2026-09-12) : Phase 2 — Analytics avancés
+
+**Suite de la session 10** : quatrième point de la Phase 2 (§33).
+
+**Fichiers modifiés** :
+- `server/config.php` — `buildAnalyticsFilter()` (fragment WHERE + paramètres période/campagne partagé, avec suffixe de paramètre pour éviter les collisions quand une requête l'appelle deux fois) ; `resolveDateRangePreset()` (aujourd'hui/7 jours/30 jours/ce mois/personnalisée → bornes de date) ; `getGlobalSmsStats`/`getCampaignsReport`/`getTopErrors` acceptent désormais `dateFrom`/`dateTo`/`campagneId` optionnels (défaut `null`, donc tous les appelants existants — dashboard, index.php — continuent de fonctionner à l'identique).
+- `app/templete/rapports.php` — barre de filtres (période + campagne, en `GET` donc partageable/marque-page) pilotant les trois widgets existants (KPI, tableau par campagne, top erreurs).
+
+**Détail de correction non trivial** : "en attente" ne peut pas être filtré par date comme les autres compteurs — `date_traitement` est `NULL` tant qu'un message n'a pas été traité, donc un filtre `date_traitement >= X` mettrait silencieusement ce compteur à zéro dès qu'un filtre de période est actif, alors qu'un message "en attente" l'est au présent, pas "pendant" une période passée. `getGlobalSmsStats()` appelle donc `buildAnalyticsFilter()` une seconde fois sans les dates (mais avec le filtre de campagne) spécifiquement pour ce compteur.
+
+**Périmètre volontairement réduit** : pas de filtre par groupe/segment sur cette page — `messages.destinataire` est un numéro de téléphone, pas un `contact_id` ; le rattacher à un groupe/segment demanderait un rapprochement par numéro (ambigu si le numéro a changé ou été retiré du groupe depuis l'envoi), disproportionné par rapport à la valeur ajoutée face au filtre période+campagne déjà couvert.
+
+**Tests réalisés** :
+1. `php -l` → aucune erreur.
+2. Suite PHPUnit complète → **134 tests, 257 assertions** (126 existants + 8 nouveaux : préréglages de date, filtre "aujourd'hui" excluant un envoi vieux de 10 jours tout en gardant le compteur "en attente" intact, filtre par campagne sur les trois fonctions), aucune régression.
+3. Capture d'écran réelle (Playwright) de la page Rapports avec une période personnalisée appliquée → filtre affiché correctement, aucune erreur console, aucune erreur PHP sur plusieurs combinaisons de filtres testées par requêtes directes.
+
+**Résultat** : la page Rapports permet maintenant de répondre à "combien de SMS envoyés cette semaine / ce mois / pour cette campagne précise", sans avoir cassé les usages existants (dashboard notamment, qui continue d'appeler les mêmes fonctions sans filtre). Reste à faire côté Phase 2 : Automatisations et Crédits/facturation — les deux plus gros chantiers, dont le second ne peut pas inclure de vrai paiement sans passerelle réelle et mériterait d'être cadré plus précisément avec l'utilisateur avant de commencer.
