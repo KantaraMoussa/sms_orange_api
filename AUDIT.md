@@ -737,3 +737,26 @@ Trouvé en testant un groupe fraîchement créé (0 membre) : erreur JS `Cannot 
 4. Données de test nettoyées après vérification.
 
 **Résultat** : le module Contacts/Groupes/Import CSV (§22-24) est fonctionnel de bout en bout et intégré au moteur de campagnes existant ; deux bugs systémiques préexistants et invisibles jusqu'ici (redirection post-mutation sur port non standard, DataTables sur tableau vide) sont corrigés pour l'ensemble de l'application, pas seulement le nouveau module.
+
+## Suite session 3 (2026-09-12) : centre de notifications (§73)
+
+**Objectif** : dernier écart du cahier des charges V2.0 explicitement redemandé — un centre de notifications persistant (solde faible, campagne terminée/partiellement échouée, import terminé), remplaçant les seuls messages flash ponctuels existants.
+
+**Fichiers créés** :
+- `database/migrations/010_notifications.sql`.
+- `src/Services/NotificationService.php` — `create()`, `createUnlessRecentDuplicate()` (déduplication par fenêtre de temps, scoping par campagne quand pertinent — testé explicitement pour ne pas confondre deux campagnes différentes), `unreadCount()`, `recent()`, `markRead()`, `markAllRead()`.
+- `tests/Integration/NotificationServiceTest.php` (5 tests).
+
+**Fichiers modifiés (additif)** :
+- `config/services.php` — `notifications()`.
+- `server/campaign_worker.php` et `bin/process-campaign.php` — notification `campagne_terminee`/`campagne_partielle` à la transition réelle vers `COMPLETED`/`PARTIAL` (dédupliquée sur une fenêtre d'un an par campagne, donc jamais répétée même si plusieurs requêtes concurrentes observent la même transition).
+- `server/app.php` — notification `import_termine` après un import de résultats ou de contacts ; nouveau handler `mark_all_notifications_read`.
+- `server/infosAPI.php` — notification `solde_faible` quand le solde Orange passe sous `LOW_BALANCE_THRESHOLD` (`.env`, défaut 2000), dédupliquée sur 24h pour ne pas spammer à chaque chargement du dashboard.
+- `app/index.php` — cloche dans l'en-tête (badge non-lu, liste déroulante des 10 dernières, icône par type, bouton "Tout marquer comme lu").
+
+**Tests réalisés** :
+1. Suite PHPUnit complète → **93 tests, 189 assertions**, aucune régression.
+2. Vérification visuelle en navigateur réel (Playwright, capture d'écran) : badge "2" sur la cloche, notifications affichées avec icône/titre/message/date, mise en évidence des non-lues, "Tout marquer comme lu" fonctionnel (badge revient à 0 après clic), zéro erreur console/JS.
+3. Données de test nettoyées après vérification.
+
+**Résultat** : les trois derniers écarts identifiés par rapport au cahier des charges V2.0 (centre de notifications, module Contacts/Groupes, finalisation accessibilité/design system/responsive/sélection massive/test de charge) sont désormais tous traités. Restent uniquement, comme signalé précédemment : un vrai logo, et la bascule `APP_ENV=production`/`APP_DEBUG=false` le jour du déploiement réel.

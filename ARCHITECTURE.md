@@ -37,6 +37,7 @@ src/Services/           Classes avec une responsabilité claire
   ActivityLogger.php         Journal d'activité / audit trail (qui a fait quoi, quand)
   SmsTemplateService.php     Bibliothèque de modèles SMS réutilisables (CRUD, catégories)
   ContactService.php         Contacts/Groupes (§22-24) : CRUD, appartenance, import CSV/Excel
+  NotificationService.php    Centre de notifications (§73) : création dédupliquée, lu/non lu
 
 bin/                    Scripts CLI
   create-user.php          Provisionne un compte (pas d'inscription publique)

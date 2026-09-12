@@ -212,6 +212,7 @@ if (isset($_POST['import_resultats']) && isset($_FILES['resultatsFile'])) {
     try {
         $report = academicResults()->importFile($file['tmp_name'], $ext, $actor);
         activityLog()->log('import_resultats', null, $actor, "{$report['valides']} valide(s)/{$report['invalides']} invalide(s)/{$report['doublons']} doublon(s), fichier {$file['name']}");
+        notifications()->create('import_termine', 'Import de résultats terminé', "{$report['valides']} valide(s), {$report['invalides']} invalide(s), {$report['doublons']} doublon(s) sur {$report['total']} ligne(s).");
         $_SESSION['class'] = "alert alert-success";
         $_SESSION['message'] = "✅ Import terminé ({$report['total']} ligne(s) analysée(s)) : {$report['valides']} valide(s), "
             . "{$report['invalides']} invalide(s), {$report['doublons']} doublon(s)/mise(s) à jour. "
@@ -422,6 +423,12 @@ if (isset($_POST['unarchive_template'])) {
     exit;
 }
 
+if (isset($_POST['mark_all_notifications_read'])) {
+    notifications()->markAllRead();
+    redirectBack();
+    exit;
+}
+
 // ------------------------------------------------------------------
 // Contacts / Groupes (cahier des charges V2.0, §22-24). Recréé le
 // 2026-09-12 sur un schéma dédié (contacts_v2/groupes_v2), après une
@@ -474,6 +481,7 @@ if (isset($_POST['import_contacts']) && isset($_FILES['contactsFile'])) {
     try {
         $report = contacts()->importFile($file['tmp_name'], $ext, $groupeId, $actor);
         activityLog()->log('import_contacts', null, $actor, "{$report['valides']} valide(s)/{$report['invalides']} invalide(s)/{$report['doublons']} doublon(s)");
+        notifications()->create('import_termine', 'Import de contacts terminé', "{$report['valides']} valide(s), {$report['invalides']} invalide(s), {$report['doublons']} doublon(s) sur {$report['total']} ligne(s).");
         $_SESSION['class'] = "alert alert-success";
         $_SESSION['message'] = "✅ Import terminé ({$report['total']} ligne(s) analysée(s)) : {$report['valides']} valide(s), {$report['invalides']} invalide(s), {$report['doublons']} doublon(s).";
     } catch (Exception $e) {

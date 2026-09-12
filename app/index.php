@@ -180,6 +180,42 @@ require_once('../server/infosAPI.php');
             <!-- [Mobile Media Block end] -->
             <div class="ms-auto">
                 <ul class="list-unstyled">
+                    <?php $notifUnread = notifications()->unreadCount(); $notifRecent = notifications()->recent(10);
+                    $notifIcons = ['solde_faible' => 'ph-coin', 'campagne_terminee' => 'ph-check-circle', 'campagne_partielle' => 'ph-warning-circle', 'import_termine' => 'ph-upload-simple']; ?>
+                    <li class="dropdown pc-h-item">
+                        <a class="pc-head-link dropdown-toggle arrow-none me-0 position-relative" data-bs-toggle="dropdown" href="#" role="button"
+                            aria-haspopup="false" data-bs-auto-close="outside" aria-expanded="false" aria-label="Notifications">
+                            <i class="ph ph-bell"></i>
+                            <?php if ($notifUnread > 0): ?>
+                                <span class="badge bg-danger rounded-pill position-absolute" style="top:0;right:0;font-size:0.6rem;"><?= $notifUnread ?></span>
+                            <?php endif; ?>
+                        </a>
+                        <div class="dropdown-menu dropdown-menu-end pc-h-dropdown" style="width:340px;">
+                            <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom">
+                                <strong>Notifications</strong>
+                                <?php if ($notifUnread > 0): ?>
+                                <form action="../server/app.php" method="post" class="m-0">
+                                    <?= csrf_field() ?>
+                                    <button type="submit" name="mark_all_notifications_read" class="btn btn-sm btn-link p-0">Tout marquer comme lu</button>
+                                </form>
+                                <?php endif; ?>
+                            </div>
+                            <div style="max-height: 320px; overflow-y: auto;">
+                                <?php if (empty($notifRecent)): ?>
+                                    <p class="text-muted text-center p-3 mb-0">Aucune notification.</p>
+                                <?php else: foreach ($notifRecent as $n): ?>
+                                    <div class="d-flex align-items-start gap-2 px-3 py-2 border-bottom <?= $n['lu'] === 'f' || $n['lu'] === false ? 'bg-light-primary' : '' ?>">
+                                        <i class="ph <?= $notifIcons[$n['type']] ?? 'ph-info' ?> mt-1"></i>
+                                        <div>
+                                            <div class="fw-semibold small"><?= htmlspecialchars($n['titre']) ?></div>
+                                            <div class="small text-muted"><?= htmlspecialchars($n['message'] ?? '') ?></div>
+                                            <div class="small text-muted"><?= htmlspecialchars($n['created_at']) ?></div>
+                                        </div>
+                                    </div>
+                                <?php endforeach; endif; ?>
+                            </div>
+                        </div>
+                    </li>
                     <li class="dropdown pc-h-item header-user-profile">
                         <a class="pc-head-link dropdown-toggle arrow-none me-0" data-bs-toggle="dropdown" href="#" role="button"
                             aria-haspopup="false" data-bs-auto-close="outside" aria-expanded="false">

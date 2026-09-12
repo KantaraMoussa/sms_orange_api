@@ -52,7 +52,22 @@ foreach ($batch as $recipient) {
 }
 
 $progress = $queue->getProgress($campaignId);
-$progress['statut'] = getSingleCampagne($campaignId)['statut'];
+$finalCampagne = getSingleCampagne($campaignId);
+$progress['statut'] = $finalCampagne['statut'];
 $progress['processed_this_batch'] = count($batch);
+
+// Centre de notifications (§73) : signale la fin de campagne. Dédupliqué sur
+// une fenêtre très large (1 an) pour ne jamais notifier deux fois la même
+// campagne, même si plusieurs requêtes concurrentes observent la même transition.
+if (in_array($progress['statut'], ['COMPLETED', 'PARTIAL'], true)) {
+    $isPartial = $progress['statut'] === 'PARTIAL';
+    notifications()->createUnlessRecentDuplicate(
+        $isPartial ? 'campagne_partielle' : 'campagne_terminee',
+        $isPartial ? 'Campagne partiellement échouée' : 'Campagne terminée',
+        "« {$finalCampagne['nom']} » : {$progress['sent']} réussi(s), {$progress['failed']} échec(s).",
+        $campaignId,
+        525600
+    );
+}
 
 echo json_encode($progress);

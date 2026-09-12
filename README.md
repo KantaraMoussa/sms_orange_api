@@ -10,6 +10,7 @@ Plateforme d'envoi de campagnes SMS et de messages administratifs, via l'API Ora
 - **Campagnes** : création, import de destinataires (fichier Excel : nom, prénom, matricule, téléphone, message), lancement en file d'attente par lots, suivi de progression en temps réel, pause/reprise/annulation, réessai des échecs.
 - **Dashboard** : solde SMS Orange en direct, statistiques réelles, 4 graphiques (évolution des envois, répartition, performance des campagnes, taux de réussite).
 - **Journal d'activité** : qui a créé/lancé/mis en pause/repris/annulé/réessayé une campagne, connexions/déconnexions.
+- **Centre de notifications** : solde faible, campagne terminée/partiellement échouée, import terminé — cloche dans l'en-tête, badge non lu.
 - **Authentification** : session + rôles (`SUPER_ADMIN`, `ADMIN`, `OPERATOR`, `VIEWER`), verrouillage anti brute-force.
 
 ## Stack

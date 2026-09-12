@@ -50,6 +50,18 @@ function drainCampaign(int $campaignId): void
         }
     } while (!$progress['done']);
 
+    $finalStatut = getSingleCampagne($campaignId)['statut'];
+    if (in_array($finalStatut, ['COMPLETED', 'PARTIAL'], true)) {
+        $isPartial = $finalStatut === 'PARTIAL';
+        notifications()->createUnlessRecentDuplicate(
+            $isPartial ? 'campagne_partielle' : 'campagne_terminee',
+            $isPartial ? 'Campagne partiellement échouée' : 'Campagne terminée',
+            "« " . getSingleCampagne($campaignId)['nom'] . " » : {$progress['sent']} réussi(s), {$progress['failed']} échec(s).",
+            $campaignId,
+            525600
+        );
+    }
+
     echo "[campagne $campaignId] terminé.\n";
 }
 
