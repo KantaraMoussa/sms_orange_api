@@ -36,6 +36,24 @@ Le mode par défaut (`server/campaign_worker.php`, appelé en AJAX depuis la pag
 
 Arrêt : `Ctrl+C` en interactif, ou terminer le processus via le gestionnaire de tâches / `taskkill` en tâche planifiée — pas de fichier de signal dédié, volontairement simple.
 
+## Planification de campagnes (§30)
+
+Une campagne "Programmée" reste au statut `SCHEDULED` jusqu'à ce qu'une tâche
+de fond la fasse passer à `QUEUED` (après quoi le worker ci-dessus la traite
+normalement) :
+
+- Si `bin/process-campaign.php --daemon` tourne déjà (recommandé ci-dessus),
+  **rien à faire de plus** : il promeut lui-même les campagnes dues à chaque
+  tour de boucle (~3 s).
+- Sans démon persistant (déploiement cron pur), ajouter en plus :
+```
+* * * * * php /chemin/vers/sms_orange/bin/promote-scheduled-campaigns.php >> /chemin/vers/storage/logs/scheduler.log 2>&1
+```
+
+Sans l'un ou l'autre, une campagne programmée n'est **jamais** lancée
+automatiquement — seul un clic manuel sur "Lancer maintenant" la ferait
+partir.
+
 ## Sauvegarde
 
 Aucune stratégie de sauvegarde PostgreSQL automatisée n'est fournie par ce dépôt. Recommandation minimale : `pg_dump` quotidien de la base `apiSms` (campagnes, historique d'envoi) vers un stockage externe au serveur.

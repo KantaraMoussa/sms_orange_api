@@ -28,7 +28,12 @@
                                          <td><?= htmlspecialchars($campagne['description']) ?></td>
                                          <td><?= htmlspecialchars($campagne['date_debut']) ?></td>
                                          <td><?= htmlspecialchars($campagne['date_fin']) ?></td>
-                                         <td class="text-danger fw-bolder"><?= htmlspecialchars($campagne['statut']) ?></td>
+                                         <td class="text-danger fw-bolder">
+                                             <?= htmlspecialchars($campagne['statut']) ?>
+                                             <?php if ($campagne['statut'] === 'SCHEDULED' && !empty($campagne['scheduled_at'])): ?>
+                                                 <div class="text-muted small fw-normal">📅 <?= formatOrgDateTime($campagne['scheduled_at']) ?></div>
+                                             <?php endif; ?>
+                                         </td>
                                          <td><a href="?page=campgagne&details=<?= $campagne['id'] ?>" class="btn btn-primary"> <i class="fa fa-eye"></i> Voir plus </a></td>
                                      </tr>
                                  <?php endforeach; ?>                                 

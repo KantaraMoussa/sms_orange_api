@@ -243,6 +243,61 @@ class CampaignQueueServiceTest extends TestCase
         $this->assertSame(1, getSmsSentToday(1));
     }
 
+    public function testScheduleSetsStatutAndScheduledAt(): void
+    {
+        $id = $this->makeCampaign('PHPUnit schedule test');
+        $when = new \DateTime('+1 hour');
+
+        $this->queue->schedule($id, $when, true);
+
+        $campagne = getSingleCampagne($id);
+        $this->assertSame('SCHEDULED', $campagne['statut']);
+        // scheduled_at est stocké en UTC (voir CampaignQueueService::schedule()) —
+        // il faut le relire comme tel avant de comparer, sinon on retombe dans
+        // le même piège de fuseau que celui que la conversion corrige.
+        $storedUtc = new \DateTime($campagne['scheduled_at'], new \DateTimeZone('UTC'));
+        $expectedUtc = (clone $when)->setTimezone(new \DateTimeZone('UTC'));
+        $this->assertSame($expectedUtc->format('Y-m-d H:i'), $storedUtc->format('Y-m-d H:i'));
+        $this->assertTrue(in_array($campagne['dry_run'], [true, 't', '1', 1], true));
+    }
+
+    public function testUnscheduleReturnsCampaignToDraft(): void
+    {
+        $id = $this->makeCampaign('PHPUnit unschedule test');
+        $this->queue->schedule($id, new \DateTime('+1 hour'));
+
+        $this->queue->unschedule($id);
+
+        $campagne = getSingleCampagne($id);
+        $this->assertSame('DRAFT', $campagne['statut']);
+        $this->assertNull($campagne['scheduled_at']);
+    }
+
+    public function testUnscheduleDoesNothingToACampaignThatIsNotScheduled(): void
+    {
+        $id = $this->makeCampaign('PHPUnit unschedule noop test');
+        $this->pdo->exec("UPDATE campagne SET statut = 'RUNNING' WHERE id = $id");
+
+        $this->queue->unschedule($id);
+
+        $this->assertSame('RUNNING', getSingleCampagne($id)['statut'], 'unschedule() must only affect SCHEDULED campaigns');
+    }
+
+    public function testPromoteDueCampaignsPromotesOnlyPastDueScheduledOnes(): void
+    {
+        $due = $this->makeCampaign('PHPUnit promote due test');
+        $this->queue->schedule($due, new \DateTime('-1 minute'));
+
+        $notYetDue = $this->makeCampaign('PHPUnit promote not-due test');
+        $this->queue->schedule($notYetDue, new \DateTime('+1 hour'));
+
+        $promoted = $this->queue->promoteDueCampaigns();
+
+        $this->assertGreaterThanOrEqual(1, $promoted);
+        $this->assertSame('QUEUED', getSingleCampagne($due)['statut']);
+        $this->assertSame('SCHEDULED', getSingleCampagne($notYetDue)['statut'], 'a campaign scheduled in the future must not be promoted yet');
+    }
+
     public function testGetActiveCampaignsCountIncludesQueuedRunningAndPausedOnly(): void
     {
         $draft = $this->makeCampaign('PHPUnit active-count draft');

@@ -10,23 +10,25 @@ if (!$campagne || (int) $campagne['organization_id'] !== auth()->organizationId(
 $messages = getMessageCampagne($campagne['id']);
 $isActive = in_array($campagne['statut'], ['QUEUED', 'RUNNING'], true);
 $isDraft = $campagne['statut'] === 'DRAFT';
+$isScheduled = $campagne['statut'] === 'SCHEDULED';
 $isFinished = in_array($campagne['statut'], ['COMPLETED', 'PARTIAL', 'FAILED', 'CANCELLED'], true);
 $badgeClass = [
-    'DRAFT' => 'bg-secondary', 'QUEUED' => 'bg-info', 'RUNNING' => 'bg-primary',
+    'DRAFT' => 'bg-secondary', 'SCHEDULED' => 'bg-primary', 'QUEUED' => 'bg-info', 'RUNNING' => 'bg-primary',
     'PAUSED' => 'bg-warning', 'COMPLETED' => 'bg-success', 'PARTIAL' => 'bg-warning',
     'FAILED' => 'bg-danger', 'CANCELLED' => 'bg-dark',
 ][$campagne['statut']] ?? 'bg-secondary';
 
 $hasRecipients = (int) $campagne['total_destinataires'] > 0;
 
-// §15 étape 5 / §20 : résumé avant lancement — estimation du nombre réel de
-// SMS (segments, pas juste 1 destinataire = 1 SMS) et comparaison au solde
-// Orange, affichés avant que l'utilisateur ne clique sur "Lancer" (le blocage
-// serveur existe déjà dans server/app.php, ceci n'est que l'affichage).
+// §15 étape 5 / §20 / §30 : résumé avant lancement (immédiat ou planifié) —
+// estimation du nombre réel de SMS (segments, pas juste 1 destinataire = 1
+// SMS) et comparaison au solde Orange, affichés avant que l'utilisateur ne
+// clique sur "Lancer"/"Programmer" (le blocage serveur existe déjà dans
+// server/app.php, ceci n'est que l'affichage).
 $smsNeeded = null;
 $balanceInfo = null;
 $balanceError = null;
-if ($isDraft && $hasRecipients) {
+if (($isDraft && $hasRecipients) || $isScheduled) {
     $smsNeeded = estimateSmsNeeded($campagne['id']);
     try {
         $balanceInfo = orangeSms()->getBalance();
@@ -42,6 +44,11 @@ if ($isDraft && !$hasRecipients) {
     $templatesDisponibles = smsTemplates()->all();
     $totalContactsOrg = contacts()->countContacts();
 }
+
+$orgFuseauHoraire = 'Africa/Conakry';
+if ($isDraft && $hasRecipients) {
+    $orgFuseauHoraire = organizations()->find(auth()->organizationId())['fuseau_horaire'] ?? $orgFuseauHoraire;
+}
 ?>
 <hr>
 <div class="row mb-3">
@@ -55,6 +62,19 @@ if ($isDraft && !$hasRecipients) {
                             <?= csrf_field() ?>
                             <input type="hidden" name="campagne_id" value="<?= $campagne['id'] ?>">
                             <button type="submit" name="launch_campagne" class="btn btn-success" <?= $balanceSufficient === false ? 'disabled' : '' ?>>🚀 Lancer l'envoi</button>
+                        </form>
+                        <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#scheduleModal<?= $campagne['id'] ?>">📅 Programmer</button>
+                    <?php elseif ($isScheduled): ?>
+                        <form method="post" action="../server/app.php" class="d-inline" onsubmit="return confirm('Lancer l\'envoi maintenant plutôt que d\'attendre la date programmée ?');">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="campagne_id" value="<?= $campagne['id'] ?>">
+                            <input type="hidden" name="dry_run" value="<?= ($campagne['dry_run'] === true || $campagne['dry_run'] === 't') ? '1' : '' ?>">
+                            <button type="submit" name="launch_campagne" class="btn btn-success" <?= $balanceSufficient === false ? 'disabled' : '' ?>>🚀 Lancer maintenant</button>
+                        </form>
+                        <form method="post" action="../server/app.php" class="d-inline">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="campagne_id" value="<?= $campagne['id'] ?>">
+                            <button type="submit" name="unschedule_campagne" class="btn btn-outline-secondary">↩ Annuler la programmation</button>
                         </form>
                     <?php elseif ($campagne['statut'] === 'RUNNING'): ?>
                         <form method="post" action="../server/app.php" class="d-inline">
@@ -119,7 +139,17 @@ if ($isDraft && !$hasRecipients) {
                 </div>
                 <?php endif; ?>
 
-                <?php if ($isDraft && $hasRecipients): ?>
+                <?php if ($isScheduled): ?>
+                <hr>
+                <div class="alert alert-primary mb-0">
+                    📅 Envoi programmé pour le <strong><?= formatOrgDateTime($campagne['scheduled_at'], 'd/m/Y \à H:i') ?></strong>.
+                    <?php if ($balanceSufficient === false): ?>
+                        Solde actuellement insuffisant — vérifiez-le avant l'heure prévue (détail ci-dessous).
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+
+                <?php if (($isDraft && $hasRecipients) || $isScheduled): ?>
                 <hr>
                 <div class="row g-3 mb-3">
                     <div class="col-md-8">
@@ -152,6 +182,35 @@ if ($isDraft && !$hasRecipients) {
         </div>
     </div>
 </div>
+
+<?php if ($isDraft && $hasRecipients): ?>
+<div class="modal fade" id="scheduleModal<?= $campagne['id'] ?>" tabindex="-1" aria-labelledby="scheduleModalLabel<?= $campagne['id'] ?>" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content shadow-lg">
+            <div class="modal-header">
+                <h5 class="modal-title">📅 Programmer l'envoi de <span class="text-danger"><?= htmlspecialchars($campagne['nom']) ?></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+            </div>
+            <form action="../server/app.php" method="POST">
+                <?= csrf_field() ?>
+                <input type="hidden" name="campagne_id" value="<?= $campagne['id'] ?>">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label" for="scheduledAt<?= $campagne['id'] ?>">Date et heure d'envoi *</label>
+                        <input type="datetime-local" id="scheduledAt<?= $campagne['id'] ?>" name="scheduled_at" class="form-control" required min="<?= (new DateTime('+1 minute'))->format('Y-m-d\TH:i') ?>">
+                        <small class="text-muted">Heure du serveur (fuseau de l'organisation : <?= htmlspecialchars($orgFuseauHoraire) ?>).</small>
+                    </div>
+                    <p class="mb-0"><?= (int) $campagne['total_destinataires'] ?> destinataire(s) · <?= (int) $smsNeeded ?> SMS estimé(s) · solde actuel : <?= $balanceError ? '—' : (int) $availableUnits ?>.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Annuler</button>
+                    <button type="submit" class="btn btn-primary" name="schedule_campagne">📅 Programmer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- Recent Orders start -->
 <div class="row">

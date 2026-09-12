@@ -71,6 +71,14 @@ if ($arg === '--daemon') {
     echo "Worker en mode démon — Ctrl+C pour arrêter.\n";
     $pdo = db();
     while (true) {
+        // §30 : promeut les campagnes SCHEDULED dont l'heure est arrivée
+        // avant de chercher du travail — un seul démon suffit à la fois pour
+        // la planification et l'envoi, pas besoin d'un second processus cron.
+        $promoted = campaignQueue()->promoteDueCampaigns();
+        if ($promoted > 0) {
+            echo "$promoted campagne(s) planifiée(s) promue(s) en QUEUED.\n";
+        }
+
         $stmt = $pdo->query("SELECT id FROM campagne WHERE statut IN ('QUEUED','RUNNING') ORDER BY id");
         $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
 

@@ -254,11 +254,10 @@ if (isset($_POST['launch_campagne'])) {
     // destinataire une fois lancée. Pas de vérification en dry_run (aucun
     // SMS réel n'est consommé).
     if (!$dryRun) {
-        $needed = estimateSmsNeeded($campagneId);
-        $available = (int) (orangeSms()->getBalance()['availableUnits'] ?? 0);
-        if ($needed > $available) {
+        $balanceError = insufficientBalanceMessage($campagneId);
+        if ($balanceError !== null) {
             $_SESSION['class'] = "alert alert-danger";
-            $_SESSION['message'] = "❌ Solde SMS insuffisant pour cette campagne : $needed SMS nécessaires, $available disponible(s).";
+            $_SESSION['message'] = $balanceError;
             header("Location: ../app/index.php?page=campgagne&details=$campagneId");
             exit;
         }
@@ -266,6 +265,57 @@ if (isset($_POST['launch_campagne'])) {
 
     campaignQueue()->queueCampaign($campagneId, $dryRun);
     activityLog()->log('lancement_campagne', $campagneId, $actor, $dryRun ? 'dry_run' : null);
+    header("Location: ../app/index.php?page=campgagne&details=$campagneId");
+    exit;
+}
+
+// Planifie un envoi différé (§30) — la promotion SCHEDULED -> QUEUED se fait
+// en tâche de fond (bin/process-campaign.php --daemon ou
+// bin/promote-scheduled-campaigns.php via cron), jamais depuis cette requête.
+if (isset($_POST['schedule_campagne'])) {
+    $campagneId = (int) $_POST['campagne_id'];
+    assertOwnsCampagne($campagneId);
+    $dryRun = isset($_POST['dry_run']);
+
+    // L'heure saisie dans le champ datetime-local représente l'heure murale
+    // du fuseau de L'ORGANISATION (§30), pas celle du serveur PHP — sans
+    // préciser ce fuseau, DateTime utilise le fuseau par défaut de PHP
+    // (Europe/Berlin dans cet environnement, différent d'Africa/Conakry :
+    // même piège que celui déjà documenté pour locked_until dans AuthService).
+    $orgTimezone = organizations()->find(auth()->organizationId())['fuseau_horaire'] ?? 'Africa/Conakry';
+    $scheduledAt = \DateTime::createFromFormat('Y-m-d\TH:i', (string) ($_POST['scheduled_at'] ?? ''), new \DateTimeZone($orgTimezone));
+    if (!$scheduledAt || $scheduledAt <= new \DateTime()) {
+        $_SESSION['class'] = "alert alert-warning";
+        $_SESSION['message'] = "Choisissez une date et une heure dans le futur.";
+        header("Location: ../app/index.php?page=campgagne&details=$campagneId");
+        exit;
+    }
+
+    if (!$dryRun) {
+        $balanceError = insufficientBalanceMessage($campagneId);
+        if ($balanceError !== null) {
+            $_SESSION['class'] = "alert alert-danger";
+            $_SESSION['message'] = $balanceError;
+            header("Location: ../app/index.php?page=campgagne&details=$campagneId");
+            exit;
+        }
+    }
+
+    campaignQueue()->schedule($campagneId, $scheduledAt, $dryRun);
+    activityLog()->log('planification_campagne', $campagneId, $actor, $scheduledAt->format('d/m/Y H:i'));
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "📅 Campagne programmée pour le " . $scheduledAt->format('d/m/Y à H:i') . ".";
+    header("Location: ../app/index.php?page=campgagne&details=$campagneId");
+    exit;
+}
+
+if (isset($_POST['unschedule_campagne'])) {
+    $campagneId = (int) $_POST['campagne_id'];
+    assertOwnsCampagne($campagneId);
+    campaignQueue()->unschedule($campagneId);
+    activityLog()->log('annulation_planification_campagne', $campagneId, $actor);
+    $_SESSION['class'] = "alert alert-success";
+    $_SESSION['message'] = "✅ Planification annulée, la campagne est repassée en brouillon.";
     header("Location: ../app/index.php?page=campgagne&details=$campagneId");
     exit;
 }

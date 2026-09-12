@@ -26,7 +26,7 @@ function PDO()
 }
 function getCampagne(int $organizationId)
 {
-    $sql = "SELECT id,nom,description,date_creation,date_debut,date_fin,statut
+    $sql = "SELECT id,nom,description,date_creation,date_debut,date_fin,statut,scheduled_at
         FROM campagne
         WHERE organization_id = :organization_id
         ORDER BY date_creation DESC";
@@ -90,6 +90,40 @@ function estimateSmsNeeded(int $campagneId): int
     }
 
     return $total;
+}
+
+/**
+ * §20 : message d'erreur si le solde Orange est insuffisant pour couvrir
+ * estimateSmsNeeded(), sinon null. Partagé par le lancement immédiat et la
+ * planification (server/app.php) — les deux engagent la campagne à être
+ * envoyée, donc les deux doivent être bloqués si le solde ne suit pas.
+ */
+function insufficientBalanceMessage(int $campagneId): ?string
+{
+    $needed = estimateSmsNeeded($campagneId);
+    $available = (int) (orangeSms()->getBalance()['availableUnits'] ?? 0);
+
+    if ($needed > $available) {
+        return "❌ Solde SMS insuffisant pour cette campagne : $needed SMS nécessaires, $available disponible(s).";
+    }
+
+    return null;
+}
+
+/**
+ * Affiche un timestamp stocké en UTC (ex. campagne.scheduled_at, voir
+ * CampaignQueueService::schedule()) dans le fuseau de l'organisation
+ * courante — sans ce passage explicite par UTC, `new DateTime($valeur)`
+ * l'interpréterait dans le fuseau par défaut de PHP (Europe/Berlin dans cet
+ * environnement), pas celui, potentiellement différent, de l'organisation.
+ */
+function formatOrgDateTime(string $utcTimestamp, string $format = 'd/m/Y H:i'): string
+{
+    $orgTimezone = organizations()->find(auth()->organizationId())['fuseau_horaire'] ?? 'Africa/Conakry';
+    $dt = new DateTime($utcTimestamp, new DateTimeZone('UTC'));
+    $dt->setTimezone(new DateTimeZone($orgTimezone));
+
+    return $dt->format($format);
 }
 
 function getMessageCampagne($campagneId)

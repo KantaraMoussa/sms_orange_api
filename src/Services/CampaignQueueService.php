@@ -106,6 +106,64 @@ class CampaignQueueService
             ->execute([':id' => $campaignId, ':dry_run' => $dryRun ? 't' : 'f']);
     }
 
+    /**
+     * Planifie un envoi différé (§30) : la campagne passe en SCHEDULED plutôt
+     * que QUEUED, et n'est reprise par le worker qu'une fois promue en
+     * QUEUED par promoteDueCampaigns() (appelée depuis bin/process-campaign.php
+     * en mode démon et bin/promote-scheduled-campaigns.php pour un
+     * déploiement cron classique) — jamais depuis le simple polling
+     * navigateur de server/campaign_worker.php, qui ne s'exécute que si
+     * quelqu'un a la page de détail ouverte.
+     *
+     * $when est converti en UTC avant stockage, quel que soit son fuseau
+     * d'origine : la colonne `scheduled_at` (timestamp without time zone) est
+     * comparée à `NOW()` dans promoteDueCampaigns(), et cette base
+     * PostgreSQL a sa session en UTC (`SHOW timezone` = GMT) alors que PHP
+     * tourne par défaut sur un autre fuseau (Europe/Berlin dans cet
+     * environnement) — même piège déjà documenté et corrigé pour
+     * `locked_until` dans AuthService::attempt(). Sans cette conversion,
+     * une campagne programmée "dans 1 minute" avec l'heure murale PHP
+     * pouvait apparaître jusqu'à plusieurs heures dans le futur pour
+     * PostgreSQL et ne jamais être promue à l'heure prévue (bug trouvé en
+     * testant promoteDueCampaigns() : une campagne programmée -1 minute
+     * n'était pas promue).
+     */
+    public function schedule(int $campaignId, \DateTimeInterface $when, bool $dryRun = false): void
+    {
+        $utc = (clone $when)->setTimezone(new \DateTimeZone('UTC'));
+
+        $this->pdo->prepare("UPDATE campagne SET statut = 'SCHEDULED', scheduled_at = :at, dry_run = :dry_run WHERE id = :id")
+            ->execute([':id' => $campaignId, ':at' => $utc->format('Y-m-d H:i:s'), ':dry_run' => $dryRun ? 't' : 'f']);
+    }
+
+    /**
+     * Annule la planification d'une campagne SCHEDULED, la ramenant en DRAFT
+     * (pas de suppression des destinataires déjà ajoutés).
+     */
+    public function unschedule(int $campaignId): void
+    {
+        $this->pdo->prepare("UPDATE campagne SET statut = 'DRAFT', scheduled_at = NULL WHERE id = :id AND statut = 'SCHEDULED'")
+            ->execute([':id' => $campaignId]);
+    }
+
+    /**
+     * Fait passer en QUEUED toute campagne SCHEDULED dont l'heure est
+     * arrivée — à appeler périodiquement par un worker/cron, jamais par une
+     * requête HTTP utilisateur (§30 : le déclenchement doit être fiable même
+     * si personne n'a l'application ouverte à l'heure prévue).
+     *
+     * @return int nombre de campagnes promues
+     */
+    public function promoteDueCampaigns(): int
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE campagne SET statut = 'QUEUED' WHERE statut = 'SCHEDULED' AND scheduled_at <= NOW() RETURNING id"
+        );
+        $stmt->execute();
+
+        return $stmt->rowCount();
+    }
+
     public function pause(int $campaignId): void
     {
         $this->pdo->prepare("UPDATE campagne SET statut = 'PAUSED' WHERE id = :id AND statut = 'RUNNING'")
