@@ -2,9 +2,10 @@
 require_once('./config.php');
 session_start();
 auth()->requireLogin('../app/login.php');
-// app.php ne fait que des mutations (création/import/envoi) — un VIEWER (lecture
-// seule, §38) ne doit jamais pouvoir déclencher un envoi de SMS ou une suppression.
-if (!auth()->hasRole(['SUPER_ADMIN', 'OWNER', 'ADMIN', 'OPERATOR'])) {
+// app.php ne fait que des mutations (création/import/envoi) — un VIEWER ou un
+// ANALYST (lecture seule, §6/§38) ne doit jamais pouvoir déclencher un envoi
+// de SMS ou une suppression.
+if (!auth()->hasRole(\App\Services\AuthService::MUTATION_ROLES)) {
     http_response_code(403);
     exit('Accès refusé : votre rôle ne permet pas cette action.');
 }
@@ -280,6 +281,10 @@ if (isset($_POST['unarchive_template'])) {
 // ------------------------------------------------------------------
 
 if (isset($_POST['update_organisation'])) {
+    if (!auth()->hasRole(\App\Services\AuthService::MANAGEMENT_ROLES)) {
+        http_response_code(403);
+        exit('Accès refusé : seuls les administrateurs peuvent modifier les paramètres de l\'organisation.');
+    }
     organizations()->update(auth()->organizationId(), [
         'nom' => trim($_POST['org_nom'] ?? ''),
         'secteur' => trim($_POST['org_secteur'] ?? '') ?: null,
@@ -295,6 +300,91 @@ if (isset($_POST['update_organisation'])) {
     $_SESSION['class'] = "alert alert-success";
     $_SESSION['message'] = "✅ Informations de l'organisation mises à jour.";
     header("Location: ../app/index.php?page=organisation");
+    exit;
+}
+
+// ------------------------------------------------------------------
+// Équipe / utilisateurs (cahier des charges V2.0 §6, §7) : réservé aux
+// rôles de gestion (SUPER_ADMIN/OWNER/ADMIN) — un CAMPAIGN_MANAGER ou un
+// OPERATOR ne doit pas pouvoir ajouter/retirer des comptes ni changer les
+// rôles de ses collègues.
+// ------------------------------------------------------------------
+
+if (isset($_POST['create_team_member'])) {
+    if (!auth()->hasRole(\App\Services\AuthService::MANAGEMENT_ROLES)) {
+        http_response_code(403);
+        exit('Accès refusé : seuls les administrateurs peuvent ajouter un membre.');
+    }
+    $nom = trim($_POST['member_nom'] ?? '');
+    $email = trim($_POST['member_email'] ?? '');
+    $password = (string) ($_POST['member_password'] ?? '');
+    $role = $_POST['member_role'] ?? 'VIEWER';
+
+    if ($nom === '' || $email === '' || strlen($password) < 8 || !in_array($role, \App\Services\AuthService::ROLES, true)) {
+        $_SESSION['class'] = "alert alert-warning";
+        $_SESSION['message'] = "Nom, email, mot de passe (8 caractères min.) et rôle valide sont obligatoires.";
+        header("Location: ../app/index.php?page=equipe");
+        exit;
+    }
+
+    try {
+        auth()->createUser(auth()->organizationId(), $nom, $email, $password, $role);
+        activityLog()->log('ajout_membre_equipe', null, $actor, "$nom ($role)");
+        $_SESSION['class'] = "alert alert-success";
+        $_SESSION['message'] = "✅ « $nom » a été ajouté à votre équipe.";
+    } catch (Exception $e) {
+        $_SESSION['class'] = "alert alert-danger";
+        $_SESSION['message'] = "❌ " . $e->getMessage();
+    }
+    header("Location: ../app/index.php?page=equipe");
+    exit;
+}
+
+if (isset($_POST['update_team_member_role'])) {
+    if (!auth()->hasRole(\App\Services\AuthService::MANAGEMENT_ROLES)) {
+        http_response_code(403);
+        exit('Accès refusé : seuls les administrateurs peuvent modifier les rôles.');
+    }
+    $userId = (int) ($_POST['member_id'] ?? 0);
+    $role = $_POST['member_role'] ?? '';
+
+    try {
+        auth()->updateUserRole(auth()->organizationId(), $userId, $role);
+        activityLog()->log('modification_role_membre', null, $actor, "utilisateur #$userId -> $role");
+        $_SESSION['class'] = "alert alert-success";
+        $_SESSION['message'] = "✅ Rôle mis à jour.";
+    } catch (Exception $e) {
+        $_SESSION['class'] = "alert alert-danger";
+        $_SESSION['message'] = "❌ " . $e->getMessage();
+    }
+    header("Location: ../app/index.php?page=equipe");
+    exit;
+}
+
+if (isset($_POST['delete_team_member'])) {
+    if (!auth()->hasRole(\App\Services\AuthService::MANAGEMENT_ROLES)) {
+        http_response_code(403);
+        exit('Accès refusé : seuls les administrateurs peuvent retirer un membre.');
+    }
+    $userId = (int) ($_POST['member_id'] ?? 0);
+
+    if ($userId === (int) auth()->user()['id']) {
+        $_SESSION['class'] = "alert alert-warning";
+        $_SESSION['message'] = "Vous ne pouvez pas vous retirer vous-même de l'équipe.";
+        header("Location: ../app/index.php?page=equipe");
+        exit;
+    }
+
+    try {
+        auth()->deleteUser(auth()->organizationId(), $userId);
+        activityLog()->log('suppression_membre_equipe', null, $actor, "utilisateur #$userId");
+        $_SESSION['class'] = "alert alert-success";
+        $_SESSION['message'] = "✅ Membre retiré de l'équipe.";
+    } catch (Exception $e) {
+        $_SESSION['class'] = "alert alert-danger";
+        $_SESSION['message'] = "❌ " . $e->getMessage();
+    }
+    header("Location: ../app/index.php?page=equipe");
     exit;
 }
 

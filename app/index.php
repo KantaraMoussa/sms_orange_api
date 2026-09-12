@@ -132,6 +132,10 @@ require_once('../server/infosAPI.php');
                         <a href="?page=organisation" class="pc-link"><span class="pc-micon"> <i class="ph ph-buildings"></i></span><span
                                 class="pc-mtext">Organisation</span></a>
                     </li>
+                    <li class="pc-item">
+                        <a href="?page=equipe" class="pc-link"><span class="pc-micon"> <i class="ph ph-users-three"></i></span><span
+                                class="pc-mtext">Équipe</span></a>
+                    </li>
                 </ul>
             </div>
 
@@ -340,6 +344,8 @@ require_once('../server/infosAPI.php');
                     require_once('./templete/modeles.php');
                 }else   if ($_GET['page'] == "organisation") {
                     require_once('./templete/organisation.php');
+                }else   if ($_GET['page'] == "equipe") {
+                    require_once('./templete/equipe.php');
                 } else {
                     require_once('./templete/404.php');
                 }

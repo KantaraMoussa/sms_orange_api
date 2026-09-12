@@ -16,13 +16,25 @@ class AuthService
 {
     /**
      * OWNER a été ajouté avec le passage au multi-tenant (§5-§7) : c'est le
-     * rôle du créateur d'une organisation, avec les mêmes droits qu'ADMIN au
-     * sein de sa propre organisation (voir server/app.php:7, seule porte de
-     * contrôle de rôle existante). SUPER_ADMIN reste distinct : c'est un rôle
-     * plateforme (compte historique de l'exploitant), pas un rôle par
+     * rôle du créateur d'une organisation. SUPER_ADMIN reste distinct : c'est
+     * un rôle plateforme (compte historique de l'exploitant), pas un rôle par
      * organisation.
+     *
+     * CAMPAIGN_MANAGER et ANALYST ajoutés pour §6 (rôles fins par
+     * organisation) : CAMPAIGN_MANAGER a les mêmes droits qu'OPERATOR
+     * (conservé pour compatibilité avec d'éventuels comptes existants — les
+     * deux sont traités de façon identique partout, voir
+     * MUTATION_ROLES/MANAGEMENT_ROLES ci-dessous) ; ANALYST est en lecture
+     * seule comme VIEWER (accès rapports/analytics, jamais d'envoi ni de
+     * modification).
      */
-    public const ROLES = ['SUPER_ADMIN', 'OWNER', 'ADMIN', 'OPERATOR', 'VIEWER'];
+    public const ROLES = ['SUPER_ADMIN', 'OWNER', 'ADMIN', 'CAMPAIGN_MANAGER', 'OPERATOR', 'ANALYST', 'VIEWER'];
+
+    /** Rôles autorisés à déclencher une mutation (campagnes, contacts, modèles, envois) — §6. */
+    public const MUTATION_ROLES = ['SUPER_ADMIN', 'OWNER', 'ADMIN', 'CAMPAIGN_MANAGER', 'OPERATOR'];
+
+    /** Rôles autorisés à gérer l'organisation et son équipe (§6 : réservé ADMIN+). */
+    public const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'OWNER', 'ADMIN'];
 
     /** Nombre d'échecs consécutifs avant verrouillage temporaire du compte. */
     private const MAX_ATTEMPTS = 5;
@@ -173,8 +185,20 @@ class AuthService
         }
     }
 
+    /**
+     * @throws \Exception si l'email est déjà utilisé — vérifié explicitement
+     * plutôt que de laisser remonter la violation de contrainte unique
+     * PostgreSQL (utilisateurs_email_key, globale : un email ne peut
+     * appartenir qu'à une seule organisation) telle quelle en PDOException.
+     */
     public function createUser(int $organizationId, string $nom, string $email, string $password, string $role = 'ADMIN'): int
     {
+        $stmt = $this->pdo->prepare('SELECT 1 FROM utilisateurs WHERE email = :email');
+        $stmt->execute([':email' => $email]);
+        if ($stmt->fetchColumn()) {
+            throw new \Exception('Cette adresse email est déjà utilisée.');
+        }
+
         $stmt = $this->pdo->prepare(
             "INSERT INTO utilisateurs (nom, email, mot_de_passe, role, organization_id) VALUES (:nom, :email, :hash, :role, :organization_id) RETURNING id"
         );
@@ -200,12 +224,9 @@ class AuthService
      */
     public function registerOrganization(array $orgData, string $ownerNom, string $ownerEmail, string $ownerPassword): array
     {
-        $stmt = $this->pdo->prepare('SELECT 1 FROM utilisateurs WHERE email = :email');
-        $stmt->execute([':email' => $ownerEmail]);
-        if ($stmt->fetchColumn()) {
-            throw new \Exception('Cette adresse email est déjà utilisée.');
-        }
-
+        // La vérification d'email dupliqué est faite par createUser() — la
+        // transaction annule proprement la création de l'organisation si elle
+        // échoue, pas besoin de la dupliquer ici.
         $this->pdo->beginTransaction();
         try {
             $organizations = new OrganizationService($this->pdo);
@@ -218,5 +239,76 @@ class AuthService
         }
 
         return ['organization_id' => $organizationId, 'user_id' => $userId];
+    }
+
+    // ------------------------------------------------------------------
+    // Gestion d'équipe par organisation (§6, §7)
+    // ------------------------------------------------------------------
+
+    /** @return list<array<string,mixed>> */
+    public function usersInOrganization(int $organizationId): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT id, nom, email, role, date_creation FROM utilisateurs WHERE organization_id = :org ORDER BY date_creation"
+        );
+        $stmt->execute([':org' => $organizationId]);
+
+        return $stmt->fetchAll();
+    }
+
+    private function countOwners(int $organizationId): int
+    {
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM utilisateurs WHERE organization_id = :org AND role = 'OWNER'");
+        $stmt->execute([':org' => $organizationId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * @throws \Exception si le rôle est invalide, l'utilisateur n'appartient
+     * pas à l'organisation, ou si le changement retirerait le dernier OWNER
+     * de l'organisation (une organisation doit toujours garder au moins un
+     * propriétaire capable de gérer l'équipe).
+     */
+    public function updateUserRole(int $organizationId, int $userId, string $role): void
+    {
+        if (!in_array($role, self::ROLES, true)) {
+            throw new \Exception('Rôle invalide.');
+        }
+
+        $stmt = $this->pdo->prepare("SELECT role FROM utilisateurs WHERE id = :id AND organization_id = :org");
+        $stmt->execute([':id' => $userId, ':org' => $organizationId]);
+        $currentRole = $stmt->fetchColumn();
+
+        if ($currentRole === false) {
+            throw new \Exception('Utilisateur introuvable dans votre organisation.');
+        }
+        if ($currentRole === 'OWNER' && $role !== 'OWNER' && $this->countOwners($organizationId) <= 1) {
+            throw new \Exception('Impossible de retirer le dernier propriétaire de l\'organisation.');
+        }
+
+        $this->pdo->prepare("UPDATE utilisateurs SET role = :role WHERE id = :id AND organization_id = :org")
+            ->execute([':role' => $role, ':id' => $userId, ':org' => $organizationId]);
+    }
+
+    /**
+     * @throws \Exception si l'utilisateur n'appartient pas à l'organisation
+     * ou si sa suppression retirerait le dernier OWNER.
+     */
+    public function deleteUser(int $organizationId, int $userId): void
+    {
+        $stmt = $this->pdo->prepare("SELECT role FROM utilisateurs WHERE id = :id AND organization_id = :org");
+        $stmt->execute([':id' => $userId, ':org' => $organizationId]);
+        $role = $stmt->fetchColumn();
+
+        if ($role === false) {
+            throw new \Exception('Utilisateur introuvable dans votre organisation.');
+        }
+        if ($role === 'OWNER' && $this->countOwners($organizationId) <= 1) {
+            throw new \Exception('Impossible de supprimer le dernier propriétaire de l\'organisation.');
+        }
+
+        $this->pdo->prepare("DELETE FROM utilisateurs WHERE id = :id AND organization_id = :org")
+            ->execute([':id' => $userId, ':org' => $organizationId]);
     }
 }
