@@ -1088,3 +1088,19 @@ Nécessite de stocker le message brut (`campagne.message_template`, avec `{{vari
 3. Captures d'écran réelles (Playwright) répétées jusqu'à diagnostic complet : état actif de la sidebar confirmé sur le tableau de bord ET sur la page Contacts (bascule correctement), état vide des anneaux confirmé, aucune erreur console sur les deux pages testées.
 
 **Résultat** : le tableau de bord adopte le nouveau langage visuel demandé tout en conservant l'identité de marque SMS_ORANGE, avec au passage un vrai défaut d'ergonomie corrigé (l'état actif de la sidebar ne s'était jamais affiché correctement depuis le début du projet).
+
+---
+
+# JOURNAL — SESSION 14 bis (2026-09-13) : annulation de la refonte visuelle
+
+**Demande** : l'utilisateur a jugé la refonte ci-dessus (cartes blanches + anneaux) être une erreur et a demandé de l'annuler intégralement.
+
+**Action** : `git revert` (non destructif, historique conservé) du commit `18f7abe` ("Adopt \"white card + ring chart + icon badge\" dashboard design language"). Restaure l'ancien `app/templete/dashboard.php` (cartes dégradées) et l'ancien `app/index.php` (rangée de 4 cartes KPI dégradées + bloc solde Orange en pied de page, `navActive()` retiré), retire `getCampaignStatusBreakdown()` de `server/config.php`, `countByGroupMembership()` de `src/Services/ContactService.php`, et les 2 tests associés. Les deux corrections de bugs bundlées dans la refonte (état actif de sidebar, `noData` ApexCharts) sont annulées avec le reste : l'instruction de l'utilisateur portait sur l'annulation complète de la refonte, pas sur une conservation sélective, et il n'y a pas lieu de réintroduire ces correctifs sans le lui demander explicitement.
+
+**Décision sur ce journal** : l'entrée SESSION 14 ci-dessus est conservée telle quelle (convention du projet : traçabilité complète, y compris du travail annulé) plutôt que supprimée ; cette entrée SESSION 14 bis documente l'annulation.
+
+**Tests réalisés** :
+1. `php -l` sur tous les fichiers restaurés → aucune erreur.
+2. Suite PHPUnit complète → **150 tests, 295 assertions**, identique à l'état d'avant refonte (SESSION 13).
+
+**Résultat** : le tableau de bord et la sidebar sont revenus exactement à leur état d'avant SESSION 14.
