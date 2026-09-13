@@ -128,32 +128,6 @@ class ContactService
         return (int) $stmt->fetchColumn();
     }
 
-    /**
-     * Répartition des contacts selon qu'ils appartiennent à au moins un
-     * groupe ou non — utilisée par le tableau de bord (carte "Contacts" en
-     * anneau), pas de signification métier au-delà de ça.
-     *
-     * @return array{with_group:int, without_group:int}
-     */
-    public function countByGroupMembership(): array
-    {
-        $stmt = $this->pdo->prepare(
-            "SELECT
-                COUNT(*) FILTER (WHERE gc.contact_id IS NOT NULL) AS with_group,
-                COUNT(*) FILTER (WHERE gc.contact_id IS NULL) AS without_group
-             FROM contacts_v2 c
-             LEFT JOIN (SELECT DISTINCT contact_id FROM groupe_contacts_v2) gc ON gc.contact_id = c.id
-             WHERE c.organization_id = :organization_id"
-        );
-        $stmt->execute([':organization_id' => $this->organizationId]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        return [
-            'with_group' => (int) ($row['with_group'] ?? 0),
-            'without_group' => (int) ($row['without_group'] ?? 0),
-        ];
-    }
-
     // ------------------------------------------------------------------
     // Groupes
     // ------------------------------------------------------------------

@@ -368,38 +368,6 @@ function getActiveCampaignsCount(int $organizationId): int
     return (int) $stmt->fetchColumn();
 }
 
-/**
- * Répartition des campagnes par grande famille de statut — carte "Campagnes"
- * en anneau du tableau de bord. brouillons = jamais lancée ; actives =
- * planifiée/en file/en cours/en pause ; terminees = tout statut final,
- * réussi ou non (le détail réussi/échoué est déjà couvert par la carte
- * "Répartition des SMS").
- *
- * @return array{total:int, brouillons:int, actives:int, terminees:int}
- */
-function getCampaignStatusBreakdown(int $organizationId): array
-{
-    $stmt = PDO()->prepare(
-        "SELECT
-            COUNT(*) FILTER (WHERE statut = 'DRAFT') AS brouillons,
-            COUNT(*) FILTER (WHERE statut IN ('SCHEDULED', 'QUEUED', 'RUNNING', 'PAUSED')) AS actives,
-            COUNT(*) FILTER (WHERE statut IN ('COMPLETED', 'PARTIAL', 'FAILED', 'CANCELLED')) AS terminees
-         FROM campagne WHERE organization_id = :org"
-    );
-    $stmt->execute([':org' => $organizationId]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    $brouillons = (int) ($row['brouillons'] ?? 0);
-    $actives = (int) ($row['actives'] ?? 0);
-    $terminees = (int) ($row['terminees'] ?? 0);
-
-    return [
-        'total' => $brouillons + $actives + $terminees,
-        'brouillons' => $brouillons,
-        'actives' => $actives,
-        'terminees' => $terminees,
-    ];
-}
-
 function getCampaignPerformance(int $organizationId, int $limit = 6)
 {
     $sql = "SELECT nom, nombre_envoyes, nombre_echecs
