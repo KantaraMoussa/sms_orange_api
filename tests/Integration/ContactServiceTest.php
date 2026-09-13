@@ -163,4 +163,20 @@ class ContactServiceTest extends TestCase
         $this->assertNotNull($sample);
         $this->assertArrayHasKey('telephone', $sample);
     }
+
+    public function testCountByGroupMembershipSplitsCorrectly(): void
+    {
+        $before = $this->service->countByGroupMembership();
+
+        $groupId = $this->service->createGroup('PHPUNITGROUP-Membership');
+        $this->groupIds[] = $groupId;
+        $inGroup = $this->service->createContact('PHPUNITCONTACT-InGroupMembership', 'A', '622990010');
+        $this->service->createContact('PHPUNITCONTACT-OutGroupMembership', 'B', '622990011');
+        $this->service->addContactToGroup($groupId, $inGroup);
+
+        $after = $this->service->countByGroupMembership();
+
+        $this->assertSame($before['with_group'] + 1, $after['with_group']);
+        $this->assertSame($before['without_group'] + 1, $after['without_group']);
+    }
 }

@@ -424,4 +424,33 @@ class CampaignQueueServiceTest extends TestCase
         $after = getActiveCampaignsCount(1);
         $this->assertSame($before - 1, $after, 'moving the queued campaign back to DRAFT must remove it from the active count');
     }
+
+    public function testGetCampaignStatusBreakdownBucketsCorrectlyAndSumsToTotal(): void
+    {
+        $draft = $this->makeCampaign('PHPUnit breakdown draft');
+        $scheduled = $this->makeCampaign('PHPUnit breakdown scheduled');
+        $this->pdo->exec("UPDATE campagne SET statut = 'SCHEDULED' WHERE id = $scheduled");
+        $running = $this->makeCampaign('PHPUnit breakdown running');
+        $this->pdo->exec("UPDATE campagne SET statut = 'RUNNING' WHERE id = $running");
+        $cancelled = $this->makeCampaign('PHPUnit breakdown cancelled');
+        $this->pdo->exec("UPDATE campagne SET statut = 'CANCELLED' WHERE id = $cancelled");
+
+        $before = getCampaignStatusBreakdown(1);
+
+        // Insert one more of each bucket relative to a fresh baseline captured
+        // just above, so the assertion is robust to whatever else exists in
+        // the shared bootstrap organization (id=1) from other tests.
+        $draft2 = $this->makeCampaign('PHPUnit breakdown draft 2');
+        $active2 = $this->makeCampaign('PHPUnit breakdown active 2');
+        $this->pdo->exec("UPDATE campagne SET statut = 'QUEUED' WHERE id = $active2");
+        $done2 = $this->makeCampaign('PHPUnit breakdown done 2');
+        $this->pdo->exec("UPDATE campagne SET statut = 'COMPLETED' WHERE id = $done2");
+
+        $after = getCampaignStatusBreakdown(1);
+
+        $this->assertSame($before['brouillons'] + 1, $after['brouillons']);
+        $this->assertSame($before['actives'] + 1, $after['actives']);
+        $this->assertSame($before['terminees'] + 1, $after['terminees']);
+        $this->assertSame($after['brouillons'] + $after['actives'] + $after['terminees'], $after['total']);
+    }
 }

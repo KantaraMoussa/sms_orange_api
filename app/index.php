@@ -2,6 +2,19 @@
 require_once __DIR__ . '/../config/services.php';
 auth()->requireLogin('login.php');
 require_once('../server/infosAPI.php');
+
+// Détection d'état actif de la sidebar : le script du template
+// (assets/js/script.js) compare window.location.href en ignorant tout ce
+// qui suit "?"/"#", donc il ne peut jamais distinguer nos liens
+// ?page=X (tous vers le même index.php) — recalculé ici côté serveur à
+// partir du paramètre réellement utilisé par le routeur applicatif.
+$currentPage = $_GET['page'] ?? 'dashdoards';
+function navActive(string $page): string
+{
+    global $currentPage;
+
+    return $currentPage === $page ? ' active' : '';
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -66,7 +79,7 @@ require_once('../server/infosAPI.php');
                     <li class="pc-item pc-caption">
                         <label>Navigation</label>
                     </li>
-                    <li class="pc-item">
+                    <li class="pc-item<?= navActive('dashdoards') ?>">
                         <a href="?page=dashdoards" class="pc-link"><span class="pc-micon"> <i
                                     class="ph ph-gauge"></i></span><span class="pc-mtext">Accueil</span></a>
                     </li>
@@ -75,17 +88,17 @@ require_once('../server/infosAPI.php');
                         <label>Contacts</label>
                         <i class="ph ph-address-book"></i>
                     </li>
-                    <li class="pc-item"><a href="?page=contacts" class="pc-link">
+                    <li class="pc-item<?= navActive('contacts') ?>"><a href="?page=contacts" class="pc-link">
                             <span class="pc-micon">
                                 <i class="ph ph-address-book"></i>
                             </span>
                             <span class="pc-mtext">Liste des contacts</span></a></li>
-                    <li class="pc-item"><a href="?page=groupe" class="pc-link">
+                    <li class="pc-item<?= navActive('groupe') . navActive('detail-groupe') ?>"><a href="?page=groupe" class="pc-link">
                             <span class="pc-micon">
                                 <i class="ph ph-users-three"></i>
                             </span>
                             <span class="pc-mtext">Groupes</span></a></li>
-                    <li class="pc-item"><a href="?page=segments" class="pc-link">
+                    <li class="pc-item<?= navActive('segments') ?>"><a href="?page=segments" class="pc-link">
                             <span class="pc-micon">
                                 <i class="ph ph-funnel"></i>
                             </span>
@@ -95,17 +108,17 @@ require_once('../server/infosAPI.php');
                         <label>Gestion des Messages</label>
                         <i class="ph ph-suitcase"></i>
                     </li>
-                    <li class="pc-item"><a href="?page=campgagne" class="pc-link">
+                    <li class="pc-item<?= navActive('campgagne') ?>"><a href="?page=campgagne" class="pc-link">
                             <span class="pc-micon">
                                 <i class="ph ph-desktop"></i>
                             </span>
                             <span class="pc-mtext">Créer une campagne</span></a></li>
 
-                    <li class="pc-item pc-hasmenu">
+                    <li class="pc-item pc-hasmenu<?= navActive('sms-sender') ?>">
                         <a href="?page=sms-sender" class="pc-link"><span class="pc-micon"> <i class="ph ph-tree-structure"></i> </span><span
                                 class="pc-mtext">Liste des Messages</span></a>
                     </li>
-                    <li class="pc-item"><a href="?page=modeles" class="pc-link">
+                    <li class="pc-item<?= navActive('modeles') ?>"><a href="?page=modeles" class="pc-link">
                             <span class="pc-micon">
                                 <i class="ph ph-note-pencil"></i>
                             </span>
@@ -113,15 +126,15 @@ require_once('../server/infosAPI.php');
                     <li class="pc-item pc-caption">
                         <label>Rapport</label>
                     </li>
-                    <li class="pc-item">
+                    <li class="pc-item<?= navActive('rapports') ?>">
                         <a href="?page=rapports" class="pc-link"><span class="pc-micon"> <i class="ph ph-gauge"></i></span><span
                                 class="pc-mtext">Rapport / Statistique</span></a>
                     </li>
-                    <li class="pc-item">
+                    <li class="pc-item<?= navActive('sms-history') ?>">
                         <a href="?page=sms-history" class="pc-link"><span class="pc-micon"> <i class="ph ph-clock-counter-clockwise"></i></span><span
                                 class="pc-mtext">Historique SMS (Orange)</span></a>
                     </li>
-                    <li class="pc-item">
+                    <li class="pc-item<?= navActive('journal') ?>">
                         <a href="?page=journal" class="pc-link"><span class="pc-micon"> <i class="ph ph-list-checks"></i></span><span
                                 class="pc-mtext">Journal d'activité</span></a>
                     </li>
@@ -129,7 +142,7 @@ require_once('../server/infosAPI.php');
                     <li class="pc-item pc-caption">
                         <label>Crédits</label>
                     </li>
-                    <li class="pc-item">
+                    <li class="pc-item<?= navActive('credits') ?>">
                         <a href="?page=credits" class="pc-link"><span class="pc-micon"> <i class="ph ph-coins"></i></span><span
                                 class="pc-mtext">Crédits SMS</span></a>
                     </li>
@@ -141,11 +154,11 @@ require_once('../server/infosAPI.php');
                     <li class="pc-item pc-caption">
                         <label>Paramètres</label>
                     </li>
-                    <li class="pc-item">
+                    <li class="pc-item<?= navActive('organisation') ?>">
                         <a href="?page=organisation" class="pc-link"><span class="pc-micon"> <i class="ph ph-buildings"></i></span><span
                                 class="pc-mtext">Organisation</span></a>
                     </li>
-                    <li class="pc-item">
+                    <li class="pc-item<?= navActive('equipe') ?>">
                         <a href="?page=equipe" class="pc-link"><span class="pc-micon"> <i class="ph ph-users-three"></i></span><span
                                 class="pc-mtext">Équipe</span></a>
                     </li>
@@ -279,46 +292,6 @@ require_once('../server/infosAPI.php');
     <div class="pc-container">
         <div class="pc-content">
             <!-- [ Main Content ] start -->
-            <div class="row">
-                <div class="col-md-6 col-xl-3">
-                    <div class="card bg-grd-primary order-card">
-                        <div class="card-body">
-                            <h6 class="text-white">SMS envoyé</h6>
-                            <h2 class="text-end text-white"><i class="feather icon-shopping-cart float-start"></i><span><?php echo ($_SESSION['totalSmsSend'] ?? '—') ?></span>
-                            </h2>
-
-                        </div>
-                    </div>
-                </div>
-                <?php $globalStats = getGlobalSmsStats(auth()->organizationId()); ?>
-                <div class="col-md-6 col-xl-3">
-                    <div class="card bg-grd-success order-card">
-                        <div class="card-body">
-                            <h6 class="text-white">SMS envoyés (SMS_ORANGE)</h6>
-                            <h2 class="text-end text-white"><i class="feather icon-tag float-start"></i><span><?= $globalStats['envoyes'] ?></span> </h2>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-6 col-xl-3">
-                    <div class="card bg-grd-warning order-card">
-                        <div class="card-body">
-                            <h6 class="text-white">SMS échoués</h6>
-                            <h2 class="text-end text-white"><i class="feather icon-repeat float-start"></i><span><?= $globalStats['echecs'] ?></span></h2>
-
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-md-6 col-xl-3">
-                    <div class="card bg-grd-danger order-card">
-                        <div class="card-body">
-                            <h6 class="text-white">Taux de réussite</h6>
-                            <h2 class="text-end text-white"><i class="feather icon-award float-start"></i><span><?= $globalStats['taux_reussite'] ?>%</span></h2>
-                        </div>
-                    </div>
-                </div>
-                <!-- Recent Orders start -->
-            </div>
            <div class="row mb-1 mt-1">
              <?php if (!empty($_SESSION['message'])) {  ?>
                 <div class='<?php echo ($_SESSION['class']) ?>  alert-dismissible fade show' role='alert'>
@@ -373,49 +346,6 @@ require_once('../server/infosAPI.php');
 
 
             ?>
-            <hr>
-            <div class="row">
-                <div class="col-md-4 col-sm-6">
-                    <div class="card statistics-card-1">
-                        <div class="card-body">
-                            <img src="../assets/images/widget/img-status-4.svg" alt="img" class="img-fluid img-bg" />
-                            <div class="d-flex align-items-center justify-content-between mb-3 drp-div">
-                                <h3 class="f-w-300 d-flex align-items-center m-b-0"><?php echo ($_SESSION['soldeSms'] ?? '—') ?></h3>
-                            </div>
-                            <div class="d-flex align-items-center mt-3">
-                                <h6 class="mb-0">SMS disponible</h6>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4 col-sm-6">
-                    <div class="card statistics-card-1">
-                        <div class="card-body">
-                            <img src="../assets/images/widget/img-status-4.svg" alt="img" class="img-fluid img-bg" />
-                            <div class="d-flex align-items-center justify-content-between mb-3 drp-div">
-                                <h3 class="f-w-300 d-flex align-items-center m-b-0"><?php echo ($_SESSION['dateExpiration'] ?? '—') ?></h3>
-                            </div>
-                            <div class="d-flex align-items-center mt-3">
-                                <h6 class="mb-0">Date expiration</h6>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4 col-sm-6">
-                    <div class="card statistics-card-1">
-                        <div class="card-body">
-                            <img src="../assets/images/widget/img-status-4.svg" alt="img" class="img-fluid img-bg" />
-                            <div class="d-flex align-items-center justify-content-between mb-3 drp-div">
-                                <h3 class="f-w-300 d-flex align-items-center m-b-0"><span class="text-success"><?php echo ($_SESSION['status'] ?? '—') ?></span></h3>
-                            </div>
-                            <div class="d-flex align-items-center mt-3">
-                                <h6 class="mb-0">status</h6>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-            </div>
         </div>
     </div>
     <!-- [ Main Content ] end -->
