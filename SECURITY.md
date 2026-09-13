@@ -8,7 +8,7 @@ Session PHP, table `utilisateurs` (`mot_de_passe` hashé avec `password_hash()`/
 php bin/create-user.php "Nom Complet" email@example.com "MotDePasseFort123" SUPER_ADMIN
 ```
 
-Rôles (`ADMIN`/`OPERATOR`/`VIEWER`/`SUPER_ADMIN`) : `server/app.php` (toutes les mutations) exige `SUPER_ADMIN`, `ADMIN` ou `OPERATOR` — un `VIEWER` reçoit un `403`.
+Rôles (`ADMIN`/`OPERATOR`/`VIEWER`/`SUPER_ADMIN`) : chaque action de mutation (`src/Controllers/*Controller.php`, voir ARCHITECTURE.md) exige `SUPER_ADMIN`, `ADMIN` ou `OPERATOR` via `Controller::requireMutationRole()` — un `VIEWER` reçoit un `403`.
 
 **Verrouillage anti brute-force** : après plusieurs échecs de connexion consécutifs, le compte est verrouillé temporairement (`utilisateurs.failed_attempts`/`locked_until`, migration `005_login_lockout.sql`) — voir `AuthService::attempt()`/`lockedForSeconds()`.
 
@@ -19,13 +19,12 @@ DELETE FROM utilisateurs WHERE email = 'admin@test.local';
 
 ## Routes protégées
 
-- `app/index.php` : `auth()->requireLogin()` avant tout rendu.
-- `server/app.php` : session + rôle + CSRF (voir plus bas), sur toute requête.
-- `server/campaign_worker.php` : session requise (401 JSON sinon) — sans ça, n'importe qui connaissant un `campagne_id` aurait pu déclencher l'envoi réel des lots depuis l'extérieur.
+- `app/index.php` (front controller unique, voir ARCHITECTURE.md) : `auth()->requireLogin()` avant dispatch, pour toutes les routes sauf les 3 endpoints JSON ci-dessous.
+- Routes JSON polled en AJAX (`campaigns.poll`, `campaigns.previewTools`, `segments.previewCount`) : session requise (401 JSON sinon, pas de redirection — une redirection casserait `response.json()` côté navigateur) — sans ça, n'importe qui connaissant un `campagne_id` aurait pu déclencher l'envoi réel des lots depuis l'extérieur.
 
 ## CSRF
 
-`config/csrf.php` — un jeton par session, vérifié (`hash_equals`) sur toute requête POST vers `server/app.php`. Les 15 formulaires de l'application incluent `<?= csrf_field() ?>`. Tout nouveau formulaire POST vers `app.php` doit faire de même, sinon il sera rejeté avec un code `419`.
+`config/csrf.php` — un jeton par session, vérifié (`hash_equals`) par `Controller::requireCsrf()` sur toute action de mutation. Les formulaires de l'application incluent `<?= csrf_field() ?>`. Toute nouvelle action de mutation doit appeler `requireCsrf()`, sinon la requête POST correspondante sera rejetée avec un code `419`.
 
 ## Secrets
 
@@ -48,7 +47,7 @@ Bug réel trouvé le 2026-09-12 : la comparaison d'hôte de `redirectBack()` (pr
 ## Ce qui n'est pas encore fait
 
 - Pas de "mot de passe oublié".
-- Pas de contrôle de rôle fin par action (ex. seul `ADMIN`+ peut annuler une campagne) — le contrôle actuel est au niveau fichier (`server/app.php` entier).
+- Pas de contrôle de rôle fin par action (ex. seul `ADMIN`+ peut annuler une campagne) — chaque Controller applique le même `MUTATION_ROLES` (ou `MANAGEMENT_ROLES`/`SUPER_ADMIN` pour organisation/équipe/crédits), mais toujours par groupe de rôles, pas action par action.
 - Pas de validation stricte du type MIME/de la taille des CSV uploadés (extension `.csv` seulement, contrôlée côté navigateur via `accept`, pas revérifiée côté serveur).
 - Upload CSV lu ligne à ligne sans limite explicite de nombre de lignes.
 

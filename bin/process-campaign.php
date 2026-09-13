@@ -3,7 +3,7 @@
 /**
  * Long-running worker for a real deployment (cron / Windows Task Scheduler,
  * cahier des charges §79) — the production-grade alternative to the
- * browser-polling fallback in server/campaign_worker.php.
+ * browser-polling fallback (route campaigns.poll, CampaignController::poll()).
  *
  * Usage:
  *   php bin/process-campaign.php <campagne_id>   # drains one campaign then exits

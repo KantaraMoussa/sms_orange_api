@@ -24,7 +24,7 @@ Variables d'environnement : voir `.env.example`. `APP_ENV=production` et `APP_DE
 
 ## Worker de campagnes en production
 
-Le mode par défaut (`server/campaign_worker.php`, appelé en AJAX depuis la page de détail d'une campagne) suffit pour un usage interactif mais dépend d'un onglet navigateur ouvert. Pour un vrai traitement en arrière-plan, indépendant du navigateur :
+Le mode par défaut (route `campaigns.poll`, `CampaignController::poll()`, appelée en AJAX depuis la page de détail d'une campagne) suffit pour un usage interactif mais dépend d'un onglet navigateur ouvert. Pour un vrai traitement en arrière-plan, indépendant du navigateur :
 
 **Linux (cron)** :
 ```

@@ -70,7 +70,7 @@ try {
     }
     echo "\n";
 
-    // 3) Process every batch, exactly as campaign_worker.php / process-campaign.php would.
+    // 3) Process every batch, exactly as CampaignController::poll() / process-campaign.php would.
     $t0 = microtime(true);
     $batches = 0;
     $batchTimes = [];

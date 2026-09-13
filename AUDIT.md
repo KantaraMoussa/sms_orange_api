@@ -1104,3 +1104,36 @@ Nécessite de stocker le message brut (`campagne.message_template`, avec `{{vari
 2. Suite PHPUnit complète → **150 tests, 295 assertions**, identique à l'état d'avant refonte (SESSION 13).
 
 **Résultat** : le tableau de bord et la sidebar sont revenus exactement à leur état d'avant SESSION 14.
+
+---
+
+# JOURNAL — SESSION 15 (2026-09-13) : réorganisation en architecture MVC
+
+**Demande** : "REORGANISE LE PROJET AVEC UNE ARCHITECTURE MVC". Clarifié avant de commencer, car ARCHITECTURE.md documentait un choix explicite inverse ("pas de framework MVC imposé, cahier des charges §48") : l'utilisateur a confirmé vouloir une "MVC complet avec routeur", en acceptant que les URLs changent — décision qui remplace le principe précédent, voir ARCHITECTURE.md.
+
+**Approche** : travail fait sur une branche dédiée (`feature/mvc-architecture`) plutôt que directement sur `main`, pour ne jamais laisser le dépôt partagé (plusieurs sessions Claude Code concurrentes) dans un état intermédiaire cassé pendant la construction — bascule uniquement une fois l'ensemble vérifié.
+
+**Ce qui a été construit** :
+- `src/Core/Router.php` : table de routes nommées (`ressource.action`) GET/POST séparées, `dispatch()`.
+- `src/Core/Controller.php` : classe de base (`view()`, `redirect()`, `json()`, `requireMutationRole()`, `requireManagementRole()`, `requireRole()`, `requireCsrf()`, `flash()`, `redirectBack()`).
+- `src/Core/View.php` + `src/Core/helpers.php` (`route()`) : rendu de vue + layout, construction d'URL.
+- `app/index.php` réécrit en front controller unique ; `app/routes.php` : table de routes complète.
+- 15 Controllers (`src/Controllers/`), un par ressource, reprenant l'intégralité des ~30 actions de l'ancien `server/app.php` (849 lignes) et de l'ancienne chaîne `if/elseif` de `app/index.php` (537 lignes).
+- 17 fichiers de vue sous `app/Views/` (dont le layout `layouts/app.php`, extrait du shell HTML de l'ancien `app/index.php`), remplaçant les 16 fragments de `app/templete/`.
+- Les 3 anciens endpoints JSON autonomes (`server/campaign_worker.php`, `campaign_tools.php`, `segment_tools.php`) sont devenus des actions de Controller (`campaigns.poll`, `campaigns.previewTools`, `segments.previewCount`), en préservant leur comportement 401-JSON-sans-redirection sur session expirée (`app/index.php` les exempte explicitement du `auth()->requireLogin()` global).
+
+**Décision de scope, pour limiter le risque sur un produit multi-tenant en production** : le Modèle (`server/config.php`, 24 fonctions globales, et `src/Services/*`) n'a **pas** été touché — ces fonctions étaient déjà correctement séparées des vues, et 150 tests automatisés les appellent directement par leur nom (`getSingleCampagne()`, `assertOwnsCampagne()`, etc.). Les réécrire en classes `Model` n'apportait rien à la demande (remplacer le routeur et le fourre-tout de mutations) et risquait de casser ces tests sans bénéfice. `login.php`/`register.php`/`logout.php`/`health.php` sont également restés des scripts autonomes hors routeur (déjà à responsabilité unique).
+
+**Tests réalisés** (aucun test HTTP automatisé n'existait avant pour ces écrans — vérification manuelle systématique) :
+1. `php -l` sur les ~45 fichiers créés/modifiés → aucune erreur.
+2. Suite PHPUnit complète → **150 tests, 295 assertions**, identique à avant (le Modèle n'a pas changé).
+3. Serveur de dev PHP (`php -S`), compte SUPER_ADMIN jetable créé puis supprimé après coup : les 13 routes GET (dashboard, contacts, groupes, segments, campagnes, modèles, rapports, historique SMS, journal, crédits, organisation, équipe, sms) répondent 200 sans warning/erreur PHP.
+4. Cycle de mutation complet testé bout en bout : création de contact → vérification en base → suppression, avec jeton CSRF réel.
+5. **Cycle de campagne complet testé bout en bout** (le module le plus à risque) : création de campagne → ajout de destinataires depuis l'audience "tous mes contacts" (rendu de variables `{{nom}}`) → lancement en **dry_run=1** → polling (`campaigns.poll`) jusqu'à `COMPLETED` → vérifié en base `provider_message_id = 'DRY-RUN'` (aucun SMS réel envoyé, conformément à la règle du projet).
+6. Vérifié qu'une route POST-uniquement appelée en GET répond 404, qu'une mutation sans jeton CSRF répond 419, et qu'un appel non authentifié à une route JSON (`segments.previewCount`) répond 401 JSON plutôt qu'une redirection HTML.
+7. Recherche exhaustive (`grep`) de toute référence restante aux anciens fichiers supprimés dans tout le dépôt (hors `archive/`) avant suppression : seules des mentions en commentaire subsistent (mises à jour), aucune dépendance fonctionnelle.
+8. Après suppression des anciens fichiers (`app/templete/`, `server/app.php`, `server/campaign_worker.php`, `server/campaign_tools.php`, `server/segment_tools.php`, `server/contacts_export_errors.php`, `server/infosAPI.php`) : suite PHPUnit et les 13 routes GET + `health.php` re-testées à l'identique, toujours 150 tests / 200 partout.
+
+**Documentation mise à jour** : `ARCHITECTURE.md` (réécrit pour la nouvelle arborescence et le nouveau principe), `SECURITY.md` (rôles/CSRF/routes protégées ne référencent plus `server/app.php`), `DEPLOYMENT.md` et les commentaires de `bin/process-campaign.php`/`bin/load-test.php` (référence au worker mise à jour).
+
+**Résultat** : routeur MVC complet et fonctionnel, comportement utilisateur final inchangé (mêmes fonctionnalités, CSRF, rôles, isolation multi-tenant), URLs internes changées (`?page=X` → `?route=ressource.action`) comme accepté par l'utilisateur. Fusionné sur `main` après vérification complète.

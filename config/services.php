@@ -4,6 +4,7 @@ require_once __DIR__ . '/database.php';
 require_once __DIR__ . '/orange.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/csrf.php';
+require_once __DIR__ . '/../src/Core/helpers.php';
 
 use App\Services\CampaignQueueService;
 use App\Services\ActivityLogger;
