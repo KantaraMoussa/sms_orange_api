@@ -1065,3 +1065,26 @@ Nécessite de stocker le message brut (`campagne.message_template`, avec `{{vari
 3. **Smoke test HTTP complet** : compte SUPER_ADMIN de test créé, recharge d'une organisation cible différente de la sienne vérifiée en base (solde + transaction), organisation cible confirmée voir son nouveau solde mais PAS le formulaire de recharge, tentative de recharge directe par un `OWNER` non-SUPER_ADMIN rejetée (HTTP 403).
 
 **Résultat** : les 6 points de la Phase 2 (Planification, Alertes, Segments dynamiques, Analytics avancés, Automatisations, Crédits/facturation) sont maintenant tous couverts, avec une isolation multi-tenant renforcée sur un point resté ouvert depuis le début du multi-tenant (le solde Orange partagé). Reste la Phase 3 de la feuille de route (API publique, API Keys, Webhooks, Doc API, Multi-provider SMS, White-label) si l'utilisateur souhaite continuer.
+
+---
+
+# JOURNAL — SESSION 14 (2026-09-13) : refonte visuelle du dashboard ("cartes blanches + anneaux")
+
+**Demande** : l'utilisateur a fourni la capture d'écran du tableau de bord d'un autre produit (Scolarix — sans lien avec SMS_ORANGE) et a demandé d'adapter ce langage visuel ici. Clarifié avant de commencer (la capture montrait un produit différent) : confirmé qu'il fallait bien adapter le style, pas migrer vers Scolarix.
+
+**Stratégie** : reprendre le langage de composants (cartes blanches arrondies, badge d'icône + titre + puce d'info, anneau + légende avec valeur/pourcentage, mini-cartes chiffrées avec pastille + barre de progression, lien "voir plus", sidebar à état actif teinté) sans changer l'identité de marque : l'orange SMS_ORANGE reste la couleur principale (état actif, boutons, badges d'icône par défaut), le violet/sarcelle/rose de la référence devient uniquement des couleurs de SÉRIE pour les graphiques à secteurs multiples.
+
+**Deux bugs réels trouvés en construisant cette refonte** :
+1. **État actif de la sidebar jamais fonctionnel** : `assets/js/script.js` détecte l'élément actif en comparant `window.location.href` après avoir retiré tout ce qui suit `?`/`#` — ça ne peut jamais distinguer nos liens `?page=X`, tous vers le même `index.php`. Corrigé par une fonction `navActive()` côté serveur, basée sur `$_GET['page']` (la vraie source de vérité du routeur applicatif), appliquée à chaque `<li>` de la sidebar.
+2. **Option `noData` d'ApexCharts inopérante sur un donut à série entièrement nulle** : elle ne se déclenche que pour une série absente/vide, pas pour `[0,0,0]` — une organisation neuve voyait un graphique vide sans indication. Corrigé par une fonction `renderDonut()` qui vérifie la somme de la série et affiche un anneau gris "Aucune donnée" à la place d'appeler ApexCharts quand elle est nulle.
+
+**Fausse alerte écartée par la vérification** : une première capture d'écran (plein-page) montrait un chevauchement apparent entre la sidebar et le contenu. Diagnostic par `getBoundingClientRect()` : géométrie parfaitement correcte (sidebar 245px, contenu démarrant exactement à x=245, aucun chevauchement réel). L'artefact venait de Playwright qui recompose une capture "page entière" en défilant puis en assemblant plusieurs captures — une sidebar `position: fixed` se retrouve alors repeinte à chaque étape de défilement, créant une illusion de chevauchement dans l'image finale assemblée. Une capture d'un seul écran confirme un rendu propre. Retenu pour la suite : préférer une capture d'écran simple (viewport) à une capture "page entière" pour vérifier une mise en page avec sidebar fixe.
+
+**Fichiers créés/modifiés** : `assets/css/sms-orange-overrides.css` (nouveau langage de composants : `.stat-panel`, `.mini-stat-card`, `.so-hero-donut-card`, teinte active de sidebar) ; `app/templete/dashboard.php` (entièrement reconstruit autour de deux nouvelles métriques — répartition des campagnes par statut, répartition des contacts par appartenance à un groupe) ; `server/config.php` (`getCampaignStatusBreakdown()`) ; `src/Services/ContactService.php` (`countByGroupMembership()`) ; `app/index.php` (`navActive()`, retrait de la rangée de cartes dégradées et des 3 cartes de bas de page — désormais uniquement sur le tableau de bord, restylées, pour ne plus les afficher inutilement sur les autres écrans).
+
+**Tests réalisés** :
+1. `php -l` sur tous les fichiers modifiés → aucune erreur.
+2. Suite PHPUnit complète → **152 tests, 301 assertions** (150 existants + 2 nouveaux), aucune régression.
+3. Captures d'écran réelles (Playwright) répétées jusqu'à diagnostic complet : état actif de la sidebar confirmé sur le tableau de bord ET sur la page Contacts (bascule correctement), état vide des anneaux confirmé, aucune erreur console sur les deux pages testées.
+
+**Résultat** : le tableau de bord adopte le nouveau langage visuel demandé tout en conservant l'identité de marque SMS_ORANGE, avec au passage un vrai défaut d'ergonomie corrigé (l'état actif de la sidebar ne s'était jamais affiché correctement depuis le début du projet).
